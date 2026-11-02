@@ -1,0 +1,51 @@
+# Dependencies
+node_modules/
+.pnpm-store/
+
+# Next.js and build output
+.next/
+out/
+build/
+dist/
+*.tsbuildinfo
+
+# Environment files
+.env
+.env.*
+!.env.example
+
+# Database dumps and local data
+backups/
+*.sql
+*.sql.gz
+*.dump
+*.sqlite
+*.sqlite3
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Test output
+coverage/
+playwright-report/
+test-results/
+
+# Claude / Ruflo local state
+.claude-flow/
+.swarm/
+.claude/settings.local.json
+ruvector.db
+agentdb.rvf
+agentdb.rvf.lock
+
+# OS and logs
+.DS_Store
+*.log

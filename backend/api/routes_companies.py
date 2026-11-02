@@ -1,0 +1,721 @@
+"""Company management endpoints."""
+import base64
+import logging
+import re
+from datetime import datetime, timezone
+from typing import Optional, List
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
+from pydantic import BaseModel
+from sqlalchemy.orm import Session
+from sqlalchemy import func
+from sqlalchemy.exc import IntegrityError
+from backend.models.db import get_db, Company, Job, Application, Setting, ScrapeLog, is_acknowledged
+from backend.api.routes_auth import current_principal
+from backend.auth.scoping import firm_job_ids, scoped_jobs, viewed_firm_id
+from backend.auth.sessions import Principal
+
+logger = logging.getLogger("jobnavigator.companies")
+
+router = APIRouter(prefix="/companies", tags=["companies"])
+
+
+async def _fire_h1b_async(company_id: str):
+    """Run H-1B lookup (used as BackgroundTasks target)."""
+    from backend.analyzer.h1b_checker import fetch_h1b_for_company_id
+    await fetch_h1b_for_company_id(company_id)
+
+
+def detect_scrape_type(url: str) -> str:
+    """Detect the ATS/scraper type from a URL via string matching. No network calls."""
+    from backend.scraper.ats.workday import is_workday as _is_workday
+    from backend.scraper.ats.oracle_hcm import is_oracle_hcm as _is_oracle_hcm
+    from backend.scraper.ats.lever import is_lever as _is_lever
+    from backend.scraper.ats.phenom import is_phenom as _is_phenom_post
+    from backend.scraper.ats.talentbrew import is_talentbrew as _is_talentbrew_ajax
+    from backend.scraper.ats.ashby import is_ashby as _is_ashby
+    from backend.scraper.ats.greenhouse import is_greenhouse as _is_greenhouse
+    from backend.scraper.ats.rippling import is_rippling as _is_rippling
+    from backend.scraper.ats.amazon import is_amazon as _is_amazon
+    from backend.scraper.ats.smartrecruiters import is_smartrecruiters as _is_smartrecruiters
+    from backend.scraper.ats.meta import is_meta as _is_meta_careers
+    from backend.scraper.ats.google import is_google as _is_google_careers
+    if _is_workday(url):
+        return "Workday API"
+    if _is_oracle_hcm(url):
+        return "Oracle HCM API"
+    if _is_lever(url):
+        return "Lever API"
+    if _is_phenom_post(url):
+        return "Phenom API"
+    if _is_talentbrew_ajax(url):
+        return "TalentBrew AJAX"
+    if _is_ashby(url):
+        return "Ashby API"
+    if _is_greenhouse(url):
+        return "Greenhouse API"
+    if _is_rippling(url):
+        return "Rippling API"
+    if _is_amazon(url):
+        return "Amazon API"
+    if _is_smartrecruiters(url):
+        return "SmartRecruiters API"
+    if _is_meta_careers(url):
+        return "Meta Careers (Playwright)"
+    if _is_google_careers(url):
+        return "Google Careers (Playwright)"
+    return "Generic (Playwright)"
+
+
+class CompanyCreate(BaseModel):
+    name: str
+    tier: Optional[int] = 2
+    scrape_urls: List[str] = []
+    selected_resume_ids: List[str] = []
+    scrape_interval_minutes: Optional[int] = None
+    title_include_expr: Optional[str] = None
+    title_exclude_keywords: list = []
+    wait_for_selector: Optional[str] = None
+    max_pages: int = 5
+    h1b_slug: Optional[str] = None
+    notes: Optional[str] = None
+    auto_scoring_depth: str = "off"
+    aliases: List[str] = []
+
+
+class BulkActivate(BaseModel):
+    active: bool
+    tiers: Optional[List[str]] = None
+
+
+@router.get("")
+def list_companies(
+    active: Optional[bool] = None,
+    tier: Optional[int] = None,
+    db: Session = Depends(get_db),
+    principal: Principal = Depends(current_principal),
+):
+    q = db.query(Company)
+    if active is not None:
+        q = q.filter(Company.active == active)
+    if tier is not None:
+        q = q.filter(Company.tier == tier)
+    companies = q.order_by(Company.tier.asc().nullslast(), Company.name).all()
+
+    # Count applications: Application records + jobs with status='applied' (no double-counting)
+    # Uses UNION of job IDs from both sources, then groups by company name
+    from sqlalchemy import union, select
+    # Companies are global, but a firm user (or a support view) counts only the firm's applications; a Super Admin
+    # with no view counts every firm's.
+    firm_id = viewed_firm_id(principal)
+    app_job_ids = select(Application.job_id.label("jid")).distinct()
+    if firm_id is not None:
+        app_job_ids = app_job_ids.where(Application.firm_id == firm_id)
+    applied_job_ids = select(Job.id.label("jid")).where(Job.status == "applied")
+    if firm_id is not None:
+        applied_job_ids = applied_job_ids.where(Job.id.in_(firm_job_ids(firm_id)))
+    all_applied = union(app_job_ids, applied_job_ids).subquery()
+    raw_counts = (
+        db.query(Job.company, func.count(all_applied.c.jid))
+        .join(all_applied, Job.id == all_applied.c.jid)
+        .group_by(Job.company)
+        .all()
+    )
+    app_counts = {}
+    for name, count in raw_counts:
+        key = (name or "").lower().replace(" ", "")
+        app_counts[key] = app_counts.get(key, 0) + count
+
+    # H-1B metrics come from VisaCache (one query, mapped by normalized name).
+    from backend.models.db import VisaCache
+    h1b_map = {r.name_key: r for r in db.query(VisaCache).filter(VisaCache.country == "US").all()}
+
+    # Per-company feed aggregates (open roles, new-in-7d, average fit) — grouped
+    # by normalized Job.company, then summed across each company's name + aliases.
+    from datetime import timedelta
+    def _norm(s):
+        return (s or "").lower().replace(" ", "")
+
+    def _jobs(*entities):
+        """A firm user or a support view counts the firm's jobs (scoped_jobs); a Super Admin the whole pool."""
+        if firm_id is not None:
+            return scoped_jobs(db, firm_id, *entities)
+        return db.query(*entities)
+    week_ago = datetime.now(timezone.utc) - timedelta(days=7)
+    open_by_key, week_by_key = {}, {}
+    # "open roles" = jobs currently sitting in the feed (new or saved)
+    for name, cnt in (
+        _jobs(Job.company, func.count(Job.id))
+        .filter(Job.status.in_(("new", "saved")))
+        .group_by(Job.company).all()
+    ):
+        open_by_key[_norm(name)] = open_by_key.get(_norm(name), 0) + (cnt or 0)
+    # "+7d" = every job that landed (was discovered) in the last 7 days, whatever
+    # its status is now — recent scraper yield, not just what's still unactioned
+    for name, cnt in (
+        _jobs(Job.company, func.count(Job.id))
+        .filter(Job.discovered_at >= week_ago)
+        .group_by(Job.company).all()
+    ):
+        week_by_key[_norm(name)] = week_by_key.get(_norm(name), 0) + (cnt or 0)
+    fitsum_by_key, fitcnt_by_key = {}, {}
+    for name, s, cnt in (
+        _jobs(Job.company, func.sum(Job.best_cv_score), func.count(Job.best_cv_score))
+        .filter(Job.best_cv_score.isnot(None))
+        .group_by(Job.company).all()
+    ):
+        k = _norm(name)
+        fitsum_by_key[k] = fitsum_by_key.get(k, 0) + (s or 0)
+        fitcnt_by_key[k] = fitcnt_by_key.get(k, 0) + (cnt or 0)
+
+    def _aggregates(c):
+        keys = [_norm(c.name)] + [_norm(a) for a in (c.aliases or [])]
+        open_jobs = sum(open_by_key.get(k, 0) for k in keys)
+        open_week = sum(week_by_key.get(k, 0) for k in keys)
+        fs = sum(fitsum_by_key.get(k, 0) for k in keys)
+        fc = sum(fitcnt_by_key.get(k, 0) for k in keys)
+        # Applications summed over name + aliases too, matching Open/+7d/Ø Fit — a
+        # name-only count would disagree with its neighbours for aliased companies.
+        apps = sum(app_counts.get(k, 0) for k in keys)
+        return open_jobs, open_week, (round(fs / fc) if fc else None), apps
+
+    # Latest ScrapeLog per company → surface the most recent run's error/warning
+    # in Health right away (the /health/entities "down" state needs 3 bad runs).
+    from sqlalchemy import and_
+    latest_sub = (
+        db.query(ScrapeLog.company_id, func.max(ScrapeLog.ran_at).label("mx"))
+        .filter(ScrapeLog.company_id.isnot(None))
+        .group_by(ScrapeLog.company_id).subquery()
+    )
+    last_log = {
+        str(l.company_id): l
+        for l in db.query(ScrapeLog).join(
+            latest_sub, and_(ScrapeLog.company_id == latest_sub.c.company_id,
+                             ScrapeLog.ran_at == latest_sub.c.mx)).all()
+    }
+
+    out = []
+    for c in companies:
+        open_jobs, open_week, avg_fit, app_count = _aggregates(c)
+        ll = last_log.get(str(c.id))
+        out.append(_company_to_dict(
+            c,
+            application_count=app_count,
+            h1b=h1b_map.get((c.name or "").strip().lower()),
+            open_jobs=open_jobs, open_jobs_week=open_week, avg_fit=avg_fit,
+            last_error=(ll.error if ll else None),
+            last_run_warning=(bool(ll.is_warning) if ll else False),
+            last_run_at=(ll.ran_at.isoformat() if (ll and ll.ran_at) else None),
+            warning_acknowledged=is_acknowledged(
+                ll.ran_at if ll else None, c.warning_acknowledged_at),
+        ))
+    return out
+
+
+@router.post("")
+def create_company(data: CompanyCreate, background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
+    existing = db.query(Company).filter(func.lower(Company.name) == data.name.lower()).first()
+    if existing:
+        raise HTTPException(status_code=409, detail="Company already exists")
+    company = Company(
+        name=data.name,
+        tier=data.tier,
+        scrape_urls=[u for u in data.scrape_urls if u.strip()],
+        selected_resume_ids=data.selected_resume_ids,
+        scrape_interval_minutes=data.scrape_interval_minutes,
+        title_include_expr=data.title_include_expr,
+        title_exclude_keywords=data.title_exclude_keywords,
+        wait_for_selector=data.wait_for_selector,
+        max_pages=data.max_pages,
+        notes=data.notes,
+        aliases=[a.strip() for a in data.aliases if a and a.strip()],
+        auto_scoring_depth=data.auto_scoring_depth,
+        active=True,
+        playwright_enabled=True,
+    )
+    db.add(company)
+    db.commit()
+
+    company_id = str(company.id)
+    background_tasks.add_task(_fire_h1b_async, company_id)
+
+    return _company_to_dict(company)
+
+
+@router.patch("/{company_id}")
+def update_company(company_id: str, updates: dict, background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
+    company = db.query(Company).filter(Company.id == company_id).first()
+    if not company:
+        raise HTTPException(status_code=404, detail="Company not found")
+
+    old_slug = company.h1b_slug
+    old_name = company.name
+
+    allowed = {
+        "name", "active", "scrape_urls", "tier", "selected_resume_ids",
+        "playwright_enabled", "jobspy_search_term", "scrape_interval_minutes",
+        "title_include_expr", "title_exclude_keywords",
+        "wait_for_selector", "max_pages", "h1b_slug", "notes", "aliases", "auto_scoring_depth",
+    }
+    for key, value in updates.items():
+        if key in allowed:
+            setattr(company, key, value)
+    db.commit()
+
+    if updates.get("h1b_slug") != old_slug or updates.get("name") != old_name:
+        if "h1b_slug" in updates or "name" in updates:
+            background_tasks.add_task(_fire_h1b_async, company_id)
+
+    from backend.models.db import VisaCache
+    h1b = db.query(VisaCache).filter(
+        VisaCache.name_key == (company.name or "").strip().lower(), VisaCache.country == "US"
+    ).first()
+    return _company_to_dict(company, h1b=h1b)
+
+
+@router.post("/{company_id}/acknowledge")
+def acknowledge_company_warning(company_id: str, db: Session = Depends(get_db)):
+    """Mark this company's current scrape warning as seen so /api/health/entities stops counting it until a newer ScrapeLog row appears; the warning stays visible but muted, and a later failure raises it again with no expiry timer."""
+    company = db.query(Company).filter(Company.id == company_id).first()
+    if not company:
+        raise HTTPException(status_code=404, detail="Company not found")
+    company.warning_acknowledged_at = datetime.now(timezone.utc)
+    db.commit()
+    return {"id": str(company.id), "name": company.name,
+            "warning_acknowledged_at": company.warning_acknowledged_at.isoformat()}
+
+
+@router.delete("/{company_id}")
+def delete_company(company_id: str, db: Session = Depends(get_db)):
+    """Delete a company record; jobs already found under it are kept (they carry the company name, not an FK), so the feed is unaffected."""
+    company = db.query(Company).filter(Company.id == company_id).first()
+    if not company:
+        raise HTTPException(status_code=404, detail="Company not found")
+    # ScrapeLog.company_id has no ON DELETE in the live schema (models/db.py declares
+    # SET NULL, but there is no Alembic here), so orphan the audit rows instead of deleting them.
+    db.query(ScrapeLog).filter(ScrapeLog.company_id == company.id).update(
+        {"company_id": None}, synchronize_session=False)
+    db.delete(company)
+    try:
+        db.commit()
+    except IntegrityError as e:
+        # Something else still references the row. Say so instead of a bare 500.
+        db.rollback()
+        logger.error(f"delete_company({company_id}) blocked by a foreign key: {e}")
+        raise HTTPException(
+            status_code=409,
+            detail="Could not delete this company — another record still references it",
+        ) from e
+    return {"deleted": True}
+
+
+@router.post("/auto-create-from-jobs")
+def auto_create_from_jobs(background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
+    """Scan all Job.company distinct values and create inactive Company records for unmatched names."""
+    default_resume_row = db.query(Setting).filter(Setting.key == "default_resume_id").first()
+    default_resume_ids = [default_resume_row.value] if default_resume_row and default_resume_row.value else []
+
+    from backend.models.db import get_company_all_names
+    existing = set(get_company_all_names(db).keys())
+    distinct_companies = db.query(Job.company).distinct().all()
+    new_ids = []
+    created = 0
+    for (name,) in distinct_companies:
+        if not name or name.strip().lower() in existing:
+            continue
+        name = name.strip()
+        company = Company(
+            name=name, tier=None, active=False, playwright_enabled=False,
+            selected_resume_ids=default_resume_ids,
+        )
+        db.add(company)
+        db.flush()
+        new_ids.append(str(company.id))
+        existing.add(name.lower())
+        created += 1
+    db.commit()
+
+    for cid in new_ids:
+        background_tasks.add_task(_fire_h1b_async, cid)
+
+    return {"created": created}
+
+
+@router.post("/bulk-activate")
+def bulk_activate(data: BulkActivate, db: Session = Depends(get_db)):
+    """Set companies active or inactive, optionally filtered by tiers."""
+    q = db.query(Company)
+    if data.tiers:
+        # `tiers` is List[str] on the wire, so int() on a free-text value was an
+        # unguarded ValueError -> 500 (R4-T1-19).
+        try:
+            tier_ints = [int(t) for t in data.tiers if t != 'none']
+        except (TypeError, ValueError):
+            raise HTTPException(status_code=422,
+                                detail="tiers must be numbers or 'none'")
+        has_none = 'none' in data.tiers
+        if tier_ints and has_none:
+            q = q.filter((Company.tier.in_(tier_ints)) | (Company.tier.is_(None)))
+        elif tier_ints:
+            q = q.filter(Company.tier.in_(tier_ints))
+        elif has_none:
+            q = q.filter(Company.tier.is_(None))
+    count = q.update({Company.active: data.active}, synchronize_session='fetch')
+    db.commit()
+    return {"updated": count, "active": data.active}
+
+
+@router.post("/refresh-h1b")
+async def refresh_h1b_all(db: Session = Depends(get_db)):
+    """Fetch H-1B data for all companies that haven't been checked yet, or re-check all."""
+    from backend.analyzer.h1b_checker import resolve_company_h1b
+    companies = db.query(Company).all()
+    updated = 0
+    for company in companies:
+        try:
+            data = await resolve_company_h1b(db, company.name, slug=company.h1b_slug,
+                                             allow_live=True, respect_budget=False, force=True)
+            if data:
+                updated += 1
+        except Exception as e:
+            logger.error(f"H-1B refresh failed for {company.name}: {e}")
+            continue
+    db.commit()
+    logger.info(f"H-1B refresh complete: {updated} companies updated")
+    return {"updated": updated}
+
+
+@router.post("/backfill-h1b-jobs")
+async def backfill_h1b_jobs(db: Session = Depends(get_db)):
+    """Re-run check_job_h1b on all jobs with NULL h1b_verdict."""
+    from backend.analyzer.h1b_checker import check_job_h1b
+    jobs = db.query(Job).filter(Job.h1b_verdict.is_(None)).all()
+    updated = 0
+    for job in jobs:
+        await check_job_h1b(job, db)
+        updated += 1
+    db.commit()
+    logger.info(f"H-1B backfill complete: {updated} jobs updated")
+    return {"updated": updated}
+
+
+@router.post("/{company_id}/test-scrape")
+async def test_scrape_company(company_id: str, db: Session = Depends(get_db)):
+    """Run Playwright scrape for a company and return results WITHOUT saving to DB."""
+    company = db.query(Company).filter(Company.id == company_id).first()
+    if not company:
+        raise HTTPException(status_code=404, detail="Company not found")
+
+    from backend.scraper._shared.browser import _get_browser, _new_page, _close_page
+    from backend.scraper._shared.filters import match_title_expr
+    from backend.scraper.ats.generic import (
+        _extract_all_pages, _wait_for_content, _setup_route_blocks,
+    )
+    from backend.scraper.ats.talentbrew import (
+        is_talentbrew as _is_talentbrew_ajax,
+        scrape as _scrape_talentbrew_ajax,
+    )
+    from backend.scraper.ats.oracle_hcm import (
+        is_oracle_hcm as _is_oracle_hcm,
+        scrape as _scrape_oracle_hcm,
+    )
+    from backend.scraper.ats.phenom import (
+        is_phenom as _is_phenom_post,
+        scrape as _scrape_phenom,
+    )
+    from backend.scraper.ats.lever import (
+        is_lever as _is_lever,
+        scrape as _scrape_lever,
+    )
+    from backend.scraper.ats.workday import (
+        is_workday as _is_workday,
+        scrape as _scrape_workday,
+    )
+    from backend.scraper.ats.ashby import (
+        is_ashby as _is_ashby,
+        scrape as _scrape_ashby,
+    )
+    from backend.scraper.ats.greenhouse import (
+        is_greenhouse as _is_greenhouse,
+        scrape as _scrape_greenhouse,
+    )
+    from backend.scraper.ats.rippling import (
+        is_rippling as _is_rippling,
+        scrape as _scrape_rippling,
+    )
+    from backend.scraper.ats.smartrecruiters import (
+        is_smartrecruiters as _is_smartrecruiters,
+        scrape as _scrape_smartrecruiters,
+    )
+    from backend.scraper.ats.meta import (
+        is_meta as _is_meta_careers,
+        scrape as _scrape_meta_careers,
+    )
+    from backend.scraper.ats.google import (
+        is_google as _is_google_careers,
+        scrape as _scrape_google_careers,
+    )
+
+    urls = company.scrape_urls or []
+    if not urls:
+        raise HTTPException(status_code=400, detail="No scrape URLs configured")
+
+    include_expr = company.title_include_expr
+    exclude_kws = [kw.lower() for kw in (company.title_exclude_keywords or [])]
+    # Mirrors the live scraper: title_exclude_global is applied at INSERT time (see
+    # scraper/sources/company_pages.py:_apply_company_filters), so this reports what would actually save.
+    from backend.models.db import get_global_title_exclude
+    global_exclude_kws = [kw.lower() for kw in (get_global_title_exclude(db) or [])]
+    # The run also drops jobs whose body matches body_exclusion_phrases (stored as
+    # `ignored`); mirrored here with the same phrase scan, no live MyVisaJobs lookup.
+    from backend.analyzer.h1b_checker import load_exclusion_phrases, scan_jd_for_h1b_flags
+    body_phrases = load_exclusion_phrases(db) or []
+
+    all_jobs = []
+    urls_scraped = []
+    pw = None
+    browser = None
+    try:
+        pw, browser = await _get_browser()
+        max_pages = company.max_pages or 5
+
+        all_rejected = []
+        all_pagination_debug = []
+        screenshots = []
+        for target_url in urls:
+            target_url = target_url.strip()
+            if not target_url:
+                continue
+            page = None
+            try:
+                # HTTP-based scrapers (no Playwright needed)
+                if _is_phenom_post(target_url):
+                    jobs, rejected = await _scrape_phenom(target_url, debug=True)
+                    all_jobs.extend(jobs)
+                    all_rejected.extend(rejected)
+                    urls_scraped.append(f"Phenom POST API ({len(jobs)} found)")
+                    continue
+                if _is_talentbrew_ajax(target_url):
+                    jobs, rejected = await _scrape_talentbrew_ajax(target_url, debug=True)
+                    all_jobs.extend(jobs)
+                    all_rejected.extend(rejected)
+                    urls_scraped.append(f"{target_url[:80]}... ({len(jobs)} found via HTTP)")
+                    continue
+                if _is_oracle_hcm(target_url):
+                    jobs, rejected = await _scrape_oracle_hcm(target_url, debug=True)
+                    all_jobs.extend(jobs)
+                    all_rejected.extend(rejected)
+                    urls_scraped.append(f"{target_url[:80]}... ({len(jobs)} found via Oracle HCM API)")
+                    continue
+                if _is_lever(target_url):
+                    jobs, rejected = await _scrape_lever(target_url, debug=True)
+                    all_jobs.extend(jobs)
+                    all_rejected.extend(rejected)
+                    urls_scraped.append(f"{target_url[:80]}... ({len(jobs)} found via Lever API)")
+                    continue
+                if _is_workday(target_url):
+                    jobs, rejected = await _scrape_workday(target_url, debug=True)
+                    all_jobs.extend(jobs)
+                    all_rejected.extend(rejected)
+                    urls_scraped.append(f"{target_url[:80]}... ({len(jobs)} found via Workday API)")
+                    continue
+                if _is_ashby(target_url):
+                    jobs, rejected = await _scrape_ashby(target_url, debug=True)
+                    all_jobs.extend(jobs)
+                    all_rejected.extend(rejected)
+                    urls_scraped.append(f"{target_url[:80]}... ({len(jobs)} found via Ashby API)")
+                    continue
+                if _is_greenhouse(target_url):
+                    jobs, rejected = await _scrape_greenhouse(target_url, debug=True)
+                    all_jobs.extend(jobs)
+                    all_rejected.extend(rejected)
+                    urls_scraped.append(f"{target_url[:80]}... ({len(jobs)} found via Greenhouse API)")
+                    continue
+                if _is_rippling(target_url):
+                    jobs, rejected = await _scrape_rippling(target_url, debug=True)
+                    all_jobs.extend(jobs)
+                    all_rejected.extend(rejected)
+                    urls_scraped.append(f"{target_url[:80]}... ({len(jobs)} found via Rippling API)")
+                    continue
+                if _is_smartrecruiters(target_url):
+                    jobs, rejected = await _scrape_smartrecruiters(target_url, debug=True)
+                    all_jobs.extend(jobs)
+                    all_rejected.extend(rejected)
+                    urls_scraped.append(f"{target_url[:80]}... ({len(jobs)} found via SmartRecruiters API)")
+                    continue
+                if _is_meta_careers(target_url):
+                    jobs, rejected = await _scrape_meta_careers(target_url, browser=browser, debug=True)
+                    all_jobs.extend(jobs)
+                    all_rejected.extend(rejected)
+                    urls_scraped.append(f"{target_url[:80]}... ({len(jobs)} found via Meta Careers)")
+                    continue
+                if _is_google_careers(target_url):
+                    jobs, rejected = await _scrape_google_careers(target_url, browser=browser, debug=True)
+                    all_jobs.extend(jobs)
+                    all_rejected.extend(rejected)
+                    urls_scraped.append(f"{target_url[:80]}... ({len(jobs)} found via Google Careers)")
+                    continue
+
+                page = await _new_page(browser)
+                await _setup_route_blocks(page)
+                await page.goto(target_url, wait_until="domcontentloaded", timeout=30000)
+                await _wait_for_content(page, company.wait_for_selector)
+                png_bytes = await page.screenshot(full_page=True)
+                screenshots.append({
+                    "url": target_url,
+                    "data": base64.b64encode(png_bytes).decode(),
+                })
+                jobs, rejected, pag_debug = await _extract_all_pages(page, target_url, max_pages, debug=True, wait_for_selector=company.wait_for_selector)
+                all_jobs.extend(jobs)
+                all_rejected.extend(rejected)
+                all_pagination_debug.extend(pag_debug)
+                urls_scraped.append(f"{target_url} ({len(jobs)} found, {len(rejected)} rejected)")
+            except Exception as e:
+                urls_scraped.append(f"{target_url[:80]}... (error: {e})")
+            finally:
+                if page:
+                    await _close_page(page)
+
+        # Classify jobs with filter reasons across the layers the live run applies
+        # (per-company title filters, then the global title_exclude_global setting).
+        results = []
+        after_company_count = 0   # passes per-company only
+        would_save_count = 0      # passes per-company, global AND the body scan
+        body_excluded_count = 0   # would be stored as `ignored` by the real run
+        body_unchecked_count = 0  # no description in the preview — can't say
+        for j in all_jobs:
+            title_lower = j["title"].lower()
+            title_orig = j["title"]
+            reason = None
+            global_excluded_by = []
+
+            matched_exclude = [kw for kw in exclude_kws if re.search(r'\b' + re.escape(kw) + r'\b', title_lower)]
+            if matched_exclude:
+                reason = f"Excluded by: {', '.join(matched_exclude)}"
+            elif include_expr and include_expr.strip():
+                    if not match_title_expr(include_expr, j["title"]):
+                        reason = f"No match for: {include_expr}"
+
+            passes_company = reason is None
+            body_excluded_by = None
+            body_checked = False
+            if passes_company:
+                after_company_count += 1
+                global_excluded_by = [
+                    kw for kw in global_exclude_kws
+                    if re.search(r'\b' + re.escape(kw) + r'\b', title_orig, re.IGNORECASE)
+                ]
+                if global_excluded_by:
+                    reason = f"[Global] Excluded by: {', '.join(global_excluded_by)}"
+                else:
+                    # Third layer: the body scan the run performs at insert time.
+                    desc = (j.get("description") or "").strip()
+                    if body_phrases and desc:
+                        body_checked = True
+                        scan = scan_jd_for_h1b_flags(desc, body_phrases)
+                        if scan["jd_flag"]:
+                            body_excluded_by = scan["matched_phrase"] or "matched"
+                            reason = f"Body exclusion: {body_excluded_by}"
+                            body_excluded_count += 1
+                    elif body_phrases:
+                        # The ATS list endpoints don't carry descriptions; the run
+                        # fetches them later. Say so instead of implying a pass.
+                        body_unchecked_count += 1
+                    if reason is None:
+                        would_save_count += 1
+
+            kept = reason is None  # would actually save (passes all three layers)
+
+            results.append({
+                "title": j["title"],
+                "url": j["url"],
+                "kept": kept,
+                "reason": reason,
+                "passes_company_filter": passes_company,
+                "global_excluded_by": global_excluded_by,
+                # The phrase that would make the run store this as `ignored`, or null;
+                # body_checked is false when the preview had no description to scan.
+                "body_excluded_by": body_excluded_by,
+                "body_checked": body_checked,
+            })
+
+        # Append rejected entries at the end so user can see what was dropped
+        for r in all_rejected:
+            results.append({
+                "title": r["title"],
+                "url": r["url"],
+                "kept": False,
+                "reason": f"[Validation] {r['reason']} (via {r['selector']})",
+                "body_excluded_by": None,
+                "body_checked": False,
+            })
+
+        return {
+            "company": company.name,
+            "urls_scraped": urls_scraped,
+            "screenshots": screenshots,
+            "pagination_debug": all_pagination_debug,
+            "include_expr": include_expr,
+            "exclude_keywords": exclude_kws,
+            "global_exclude_keyword_count": len(global_exclude_kws),
+            "total_found": len(all_jobs),
+            "total_rejected": len(all_rejected),
+            "after_company_filter": after_company_count,  # passes per-company only
+            "after_filter": would_save_count,             # passes all three — what'd actually save
+            # Footer arithmetic: kept · title-filtered · would-be-ignored
+            "body_excluded_count": body_excluded_count,
+            "body_unchecked_count": body_unchecked_count,
+            "body_phrase_count": len(body_phrases),
+            "jobs": results,
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        if browser:
+            await browser.close()
+        if pw:
+            await pw.stop()
+
+
+def _company_to_dict(c: Company, application_count: int = 0, h1b=None,
+                     open_jobs: int = 0, open_jobs_week: int = 0, avg_fit=None,
+                     last_error=None, last_run_warning: bool = False, last_run_at=None,
+                     warning_acknowledged: bool = False) -> dict:
+    urls = c.scrape_urls or []
+    detected_types = {url: detect_scrape_type(url) for url in urls if url.strip()}
+    # h1b is a VisaCache row (or None) for this company — H-1B metrics live there now.
+    return {
+        "id": str(c.id),
+        "name": c.name,
+        "aliases": c.aliases or [],
+        "auto_scoring_depth": c.auto_scoring_depth,
+        "active": c.active,
+        "scrape_urls": urls,
+        "tier": c.tier,
+        "selected_resume_ids": c.selected_resume_ids or [],
+        "playwright_enabled": c.playwright_enabled,
+        "scrape_interval_minutes": c.scrape_interval_minutes,
+        "title_include_expr": c.title_include_expr,
+        "title_exclude_keywords": c.title_exclude_keywords or [],
+        "wait_for_selector": c.wait_for_selector,
+        "max_pages": c.max_pages or 5,
+        "jobspy_search_term": c.jobspy_search_term,
+        "h1b_slug": c.h1b_slug,
+        "detected_scrape_types": detected_types,
+        "application_count": application_count,
+        "open_jobs": open_jobs,
+        "open_jobs_week": open_jobs_week,
+        "avg_fit": avg_fit,
+        "last_error": last_error,
+        "last_run_warning": last_run_warning,
+        "last_run_at": last_run_at,
+        "warning_acknowledged_at": c.warning_acknowledged_at.isoformat() if c.warning_acknowledged_at else None,
+        # True while the acknowledgement still covers the newest run — the UI
+        # mutes the warning instead of hiding it, so the history stays readable.
+        "warning_acknowledged": warning_acknowledged,
+        "h1b_lca_count": h1b.lca_count if h1b else None,
+        "h1b_approval_rate": h1b.approval_rate if h1b else None,
+        "h1b_median_salary": h1b.median_salary if h1b else None,
+        "h1b_last_checked": h1b.fetched_at.isoformat() if (h1b and h1b.fetched_at) else None,
+        "last_scraped_at": c.last_scraped_at.isoformat() if c.last_scraped_at else None,
+        "notes": c.notes,
+    }

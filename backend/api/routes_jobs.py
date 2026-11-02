@@ -1,0 +1,1278 @@
+"""Job listing and management endpoints."""
+import logging
+from typing import Annotated, Optional
+from fastapi import APIRouter, Depends, HTTPException, Query, BackgroundTasks, Request
+from fastapi.responses import HTMLResponse
+from sqlalchemy.orm import Session
+from sqlalchemy import desc, asc, text, func
+from backend.models.db import get_db, Job, find_company_by_name
+from backend.models.tenancy import link_job_to_firm
+from backend.api.routes_auth import current_principal
+from backend.auth.policy import is_support_view
+from backend.auth.scoping import reader_firm_id, scoped, scoped_jobs, writer_firm_id
+from backend.auth.sessions import Principal
+from backend.api._input import str_field, uuid_filter
+from backend.scraper._shared.dedup import make_external_id, make_content_hash
+from backend.analyzer.salary_extractor import apply_salary_to_job
+from backend.analyzer.work_arrangement import apply_arrangement_to_job
+from backend.analyzer.location import apply_location_to_job
+from backend.job_monitor import launch_background, JobAlreadyRunningError
+# LinkedIn extension enrichment — see sources/linkedin_extension.py
+from backend.scraper.sources.linkedin_extension import (
+    enrich as _scrape_linkedin_ids,  # noqa: F401
+    _linkedin_import_progress,
+)
+
+logger = logging.getLogger("jobnavigator.jobs")
+
+router = APIRouter(prefix="/jobs", tags=["jobs"])
+
+
+def _score_resume_names(db, job, firm_id) -> list[str]:
+    """Résumé names an auto-score launch will cover, from the firm's résumés; never fatal to the save itself."""
+    try:
+        from backend.analyzer.cv_scorer import resolve_score_resume_names
+        return resolve_score_resume_names(db, job=job, firm_id=firm_id)
+    except Exception as e:
+        logger.warning(f"Could not resolve resume names for job {getattr(job, 'id', '?')}: {e}")
+        return []
+
+
+@router.post("/linkedin-import")
+async def linkedin_import(request: Request, db: Session = Depends(get_db)):
+    """Accept LinkedIn job IDs from the Chrome Extension, scrape via Voyager API in background."""
+    # The extension can send a truncated or non-JSON body; a bare request.json()
+    # makes that an unhandled JSONDecodeError (R4-T1-13).
+    try:
+        data = await request.json()
+    except Exception:
+        raise HTTPException(status_code=422, detail="Body must be a JSON object")
+    if not isinstance(data, dict):
+        raise HTTPException(status_code=422, detail="Body must be a JSON object")
+    raw_ids = data.get("linkedin_ids", [])
+    if raw_ids is None:
+        raw_ids = []
+    # A bare string is the dangerous shape: iterating it queues one junk id per
+    # character (R4-T1-14). Anything that is not a list/tuple is a request error.
+    if not isinstance(raw_ids, (list, tuple)):
+        raise HTTPException(status_code=422,
+                            detail="linkedin_ids must be a list of job ids")
+    linkedin_ids = [str(lid).strip() for lid in raw_ids if lid]
+
+    if not linkedin_ids:
+        return {"accepted": 0, "message": "No IDs provided"}
+
+    # Quick pre-check: how many are already in DB (for immediate feedback to extension)
+    existing_li_ids = {
+        r[0] for r in db.query(Job.linkedin_job_id).filter(Job.linkedin_job_id != None).all()
+    }
+    new_count = sum(1 for lid in linkedin_ids if lid not in existing_li_ids)
+
+    _linkedin_import_progress.clear()
+
+    async def _do():
+        await _scrape_linkedin_ids(linkedin_ids)
+
+    try:
+        run_id = launch_background("linkedin_import", _do, trigger="manual")
+    except JobAlreadyRunningError as e:
+        logger.info("Duplicate linkedin_import trigger rejected (%s)", e)
+        raise HTTPException(
+            status_code=409,
+            detail=f"{e.job_type} is already running",
+        )
+
+    return {
+        "accepted": len(linkedin_ids),
+        "new": new_count,
+        "already_imported": len(linkedin_ids) - new_count,
+        "run_id": run_id,
+        "message": f"Processing {new_count} new jobs ({len(linkedin_ids) - new_count} already imported)",
+    }
+
+
+@router.get("/linkedin-import/progress")
+def linkedin_import_progress():
+    """Poll LinkedIn import progress."""
+    if not _linkedin_import_progress:
+        return {"status": "idle"}
+    return _linkedin_import_progress
+
+
+@router.get("")
+def list_jobs(
+    status: Optional[str] = None,
+    company: Optional[str] = None,
+    min_score: Optional[int] = None,
+    max_score: Optional[int] = None,
+    search_id: Optional[str] = None,
+    h1b_verdict: Optional[str] = None,
+    remote: Optional[bool] = None,
+    location: Optional[str] = None,
+    arrangement: Optional[str] = None,
+    source: Optional[str] = None,
+    saved: Optional[bool] = None,
+    title_search: Optional[str] = None,
+    min_salary: Optional[int] = None,
+    max_salary: Optional[int] = None,
+    sort_by: Optional[str] = Query("date", pattern="^(date|score|salary|company)$"),
+    # ge=0: without a lower bound a negative limit reaches Postgres as LIMIT -5,
+    # which is a DataError the id handler then reports as a 500 (R4-T1-07).
+    limit: Annotated[int, Query(ge=0, le=200)] = 50,
+    offset: Annotated[int, Query(ge=0)] = 0,
+    # brief=1 drops the long text fields (description, scoring report, H-1B snippet) for
+    # pickers that only need title/company/scores; 200 full rows are several MB.
+    brief: bool = False,
+    db: Session = Depends(get_db), firm_id=Depends(reader_firm_id),
+):
+    search_id = uuid_filter(search_id, "search_id")
+    q = scoped_jobs(db, firm_id)
+
+    if status:
+        vals = [s.strip() for s in status.split(",") if s.strip()]
+        q = q.filter(Job.status.in_(vals)) if len(vals) > 1 else q.filter(Job.status == vals[0])
+    if company:
+        company = _expand_company_filter(db, company)
+        vals = [c.strip() for c in company.split(",") if c.strip()]
+        q = q.filter(func.lower(Job.company).in_([v.lower() for v in vals]))
+    if min_score is not None:
+        q = q.filter(Job.best_cv_score >= float(min_score))
+    if max_score is not None:
+        q = q.filter(Job.best_cv_score <= float(max_score))
+    if search_id:
+        q = q.filter(Job.search_id == search_id)
+    if h1b_verdict:
+        vals = [v.strip() for v in h1b_verdict.split(",") if v.strip()]
+        q = q.filter(Job.h1b_verdict.in_(vals)) if len(vals) > 1 else q.filter(Job.h1b_verdict == vals[0])
+    if remote is not None:
+        q = q.filter(Job.remote == remote)
+    if source:
+        vals = [s.strip() for s in source.split(",") if s.strip()]
+        q = q.filter(Job.source.in_(vals)) if len(vals) > 1 else q.filter(Job.source == vals[0])
+    if saved is not None:
+        q = q.filter(Job.saved == saved)
+    if title_search:
+        q = q.filter(Job.title.ilike(f"%{title_search}%"))
+    if min_salary is not None:
+        q = q.filter(Job.salary_max >= min_salary)
+    if max_salary is not None:
+        q = q.filter(Job.salary_min <= max_salary)
+    clause = _location_clause(location)
+    if clause is not None:
+        q = q.filter(clause)
+    clause = _arrangement_clause(arrangement)
+    if clause is not None:
+        q = q.filter(clause)
+
+    total = q.count()
+
+    if sort_by == "score":
+        q = q.order_by(desc(Job.best_cv_score).nullslast(), Job.id)
+    elif sort_by == "salary":
+        q = q.order_by(desc(Job.salary_max).nullslast(), Job.id)
+    elif sort_by == "company":
+        q = q.order_by(asc(Job.company), Job.id)
+    else:  # "date" (default)
+        q = q.order_by(desc(Job.discovered_at), Job.id)   # id tiebreak: LIMIT/OFFSET over a tie-heavy sort is not stable without one
+
+    jobs = q.offset(offset).limit(limit).all()
+
+    # Batch-check which jobs have tailored resumes (most recent per job)
+    from backend.models.db import Resume
+    job_ids = [j.id for j in jobs]
+    tailored_map = {}
+    if job_ids:
+        rows = scoped(db, Resume, firm_id, Resume.job_id, Resume.id).filter(
+            Resume.job_id.in_(job_ids), Resume.is_base == False
+        ).order_by(Resume.updated_at.desc()).all()
+        for jid, rid in rows:
+            if jid not in tailored_map:
+                tailored_map[jid] = rid
+
+    # Batch per-job in-flight op lookup (O(N running jobs) once, O(1) per row)
+    import backend.job_monitor as _mon
+    in_flight_map: dict[str, list[str]] = {}
+    in_flight_detail_map: dict[str, list[dict]] = {}
+    for r in _mon._running.values():
+        if r.target_job_id is None:
+            continue
+        key = str(r.target_job_id)
+        in_flight_map.setdefault(key, []).append(r.job_type)
+        in_flight_detail_map.setdefault(key, []).append(
+            {"job_type": r.job_type, "meta": r.meta})
+
+    rows = [
+        _job_to_dict(
+            j,
+            tailored_resume_id=tailored_map.get(j.id),
+            in_flight=in_flight_map.get(str(j.id), []),
+            in_flight_detail=in_flight_detail_map.get(str(j.id), []),
+        )
+        for j in jobs
+    ]
+    if brief:
+        for r in rows:
+            for k in _BRIEF_DROPPED:
+                r.pop(k, None)
+    return {"total": total, "jobs": rows}
+
+
+# The long text fields a `brief=1` listing leaves out.
+_BRIEF_DROPPED = ("description", "scoring_report", "h1b_jd_snippet")
+
+
+def _expand_company_filter(db, company):
+    """Expand a comma-separated list of company names to include all aliases of each (e.g. 'Amazon' also matches 'Audible', 'AWS'); empty input returns None, and orphan names pass through unchanged."""
+    if not company:
+        return None
+    vals = [c.strip() for c in company.split(",") if c.strip()]
+    expanded = set()
+    for v in vals:
+        co = find_company_by_name(db, v)
+        if co:
+            expanded.add(co.name)
+            for a in (co.aliases or []):
+                expanded.add(a)
+        else:
+            expanded.add(v)
+    return ",".join(sorted(expanded))
+
+
+def _location_clause(raw):
+    """OR of the picked places, each an AND of the parts the key names.
+
+    A key is "CA", "CA:BC" or "CA:BC:vancouver", so picking a country keeps
+    every job under it.
+
+    A region is matched strictly. Letting a row with no region answer every
+    region of its country would report 51 jobs in Alberta when 5 are known to
+    be there. The one exception is a key that also names a city: the city
+    already identifies the place, so "Vancouver, BC" still reaches the rows
+    whose region the board never stated.
+    """
+    from backend.analyzer.location import split_key
+    from sqlalchemy import and_, or_
+
+    from backend.models.db import JobLocation
+
+    clauses = []
+    for key in [k.strip() for k in (raw or "").split(",") if k.strip()]:
+        country, region, city = split_key(key)
+        parts = [JobLocation.job_id == Job.id]
+        if country:
+            parts.append(JobLocation.country == country)
+        if region:
+            parts.append(or_(JobLocation.region == region, JobLocation.region.is_(None))
+                         if city else JobLocation.region == region)
+        if city:
+            parts.append(JobLocation.city == city)
+        if len(parts) > 1:
+            clauses.append(and_(*parts))
+    if not clauses:
+        return None
+    # EXISTS, not a join: a posting open in twenty-two cities must answer all
+    # twenty-two filters without being returned twenty-two times.
+    from sqlalchemy import exists
+    return or_(*[exists().where(clause) for clause in clauses])
+
+
+ARRANGEMENTS = ("remote", "hybrid", "onsite", "unknown")
+
+
+def _arrangement_clause(raw):
+    """OR of the picked work arrangements.
+
+    A posting carries a set, so one offered both remote and hybrid answers
+    either filter. "unknown" is its own value - all three flags NULL - and is
+    never folded into "not remote".
+    """
+    from sqlalchemy import and_, or_
+
+    picked = [v.strip().lower() for v in (raw or "").split(",") if v.strip()]
+    columns = {"remote": Job.arr_remote, "hybrid": Job.arr_hybrid,
+               "onsite": Job.arr_onsite}
+    clauses = []
+    for value in picked:
+        if value in columns:
+            clauses.append(columns[value].is_(True))
+        elif value == "unknown":
+            clauses.append(and_(Job.arr_remote.is_(None), Job.arr_hybrid.is_(None),
+                                Job.arr_onsite.is_(None)))
+    return or_(*clauses) if clauses else None
+
+
+def _apply_common_filters(q, status=None, company=None, source=None, h1b_verdict=None,
+                          min_score=None, saved=None, title_search=None, remote=None,
+                          min_salary=None, max_salary=None, search_id=None,
+                          location=None, arrangement=None):
+    """Apply shared filter logic for job list and filter-list endpoints."""
+    if status:
+        vals = [s.strip() for s in status.split(",") if s.strip()]
+        q = q.filter(Job.status.in_(vals)) if len(vals) > 1 else q.filter(Job.status == vals[0])
+    if company:
+        vals = [c.strip() for c in company.split(",") if c.strip()]
+        # Caller is expected to pre-expand aliases via _expand_company_filter
+        q = q.filter(func.lower(Job.company).in_([v.lower() for v in vals]))
+    if source:
+        vals = [s.strip() for s in source.split(",") if s.strip()]
+        q = q.filter(Job.source.in_(vals)) if len(vals) > 1 else q.filter(Job.source == vals[0])
+    if h1b_verdict:
+        vals = [v.strip() for v in h1b_verdict.split(",") if v.strip()]
+        q = q.filter(Job.h1b_verdict.in_(vals)) if len(vals) > 1 else q.filter(Job.h1b_verdict == vals[0])
+    if min_score is not None:
+        q = q.filter(Job.best_cv_score >= float(min_score))
+    if saved is not None:
+        q = q.filter(Job.saved == saved)
+    if title_search:
+        q = q.filter(Job.title.ilike(f"%{title_search}%"))
+    if remote is not None:
+        q = q.filter(Job.remote == remote)
+    if min_salary is not None:
+        q = q.filter(Job.salary_max >= min_salary)
+    if max_salary is not None:
+        q = q.filter(Job.salary_min <= max_salary)
+    if search_id:
+        q = q.filter(Job.search_id == uuid_filter(search_id, "search_id"))
+    clause = _location_clause(location)
+    if clause is not None:
+        q = q.filter(clause)
+    clause = _arrangement_clause(arrangement)
+    if clause is not None:
+        q = q.filter(clause)
+    return q
+
+
+@router.get("/feed-stats")
+def feed_stats(db: Session = Depends(get_db), firm_id=Depends(reader_firm_id)):
+    """Global counts for the v2 feed header — arrived today + not-yet-scored — since the paged /jobs response only sees the current page."""
+    from datetime import datetime, timezone
+    from sqlalchemy import func, text
+    start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+    arrived_today = scoped_jobs(db, firm_id, func.count(Job.id)).filter(Job.discovered_at >= start).scalar() or 0
+    unscored = db.execute(text(
+        "select count(*) from jobs where status in ('new','saved') "
+        "and (cv_scores is null or cv_scores::text = '{}') "
+        "and id in (select job_id from firm_jobs where firm_id = :firm)"   # the firm's jobs only (scoped_jobs)
+    ), {"firm": firm_id}).scalar() or 0
+    return {"arrived_today": int(arrived_today), "unscored": int(unscored)}
+
+
+@router.get("/unscored-ids")
+def unscored_ids(limit: Annotated[int, Query(ge=0, le=10000)] = 500, db: Session = Depends(get_db), firm_id=Depends(reader_firm_id)):
+    """IDs of not-yet-scored new/saved jobs; the header's "Score N unscored" action scores exactly these, since they sort to the bottom by score and won't be on the feed page."""
+    from sqlalchemy import text
+    rows = db.execute(text(
+        "select id from jobs where status in ('new','saved') "
+        "and (cv_scores is null or cv_scores::text = '{}') "
+        "and id in (select job_id from firm_jobs where firm_id = :firm) "   # the firm's jobs only (scoped_jobs)
+        "order by discovered_at desc limit :lim"
+    ), {"lim": limit, "firm": firm_id}).fetchall()
+    return {"ids": [str(r[0]) for r in rows]}
+
+
+@router.get("/companies/list")
+def list_job_companies(
+    status: Optional[str] = None,
+    source: Optional[str] = None,
+    h1b_verdict: Optional[str] = None,
+    min_score: Optional[int] = None,
+    saved: Optional[bool] = None,
+    title_search: Optional[str] = None,
+    remote: Optional[bool] = None,
+    location: Optional[str] = None,
+    arrangement: Optional[str] = None,
+    min_salary: Optional[int] = None,
+    max_salary: Optional[int] = None,
+    search_id: Optional[str] = None,
+    counts: Optional[bool] = None,
+    db: Session = Depends(get_db), firm_id=Depends(reader_firm_id),
+):
+    """Return distinct canonical company names from jobs matching current filters, sorted, with aliases collapsed to their parent (e.g. 'Audible' -> 'Amazon'); with ?counts=1, returns [{name, count}] sorted by open-role count."""
+    from backend.models.db import build_company_lookup
+    if counts:
+        from sqlalchemy import func
+        cq = scoped_jobs(db, firm_id, Job.company, func.count(Job.id)).filter(Job.company.isnot(None), Job.company != "")
+        cq = _apply_common_filters(cq, status=status, source=source, h1b_verdict=h1b_verdict,
+                                   min_score=min_score, saved=saved, title_search=title_search,
+                                   remote=remote, location=location, arrangement=arrangement, min_salary=min_salary, max_salary=max_salary,
+                                   search_id=search_id).group_by(Job.company)
+        lookup = build_company_lookup(db)
+        agg = {}
+        for name, cnt in cq.all():
+            co = lookup.get((name or "").lower())
+            cname = co.name if co else name
+            agg[cname] = agg.get(cname, 0) + cnt
+        return [{"name": n, "count": c} for n, c in sorted(agg.items(), key=lambda x: (-x[1], x[0].lower()))]
+    q = scoped_jobs(db, firm_id, Job.company).distinct().filter(Job.company.isnot(None), Job.company != "")
+    q = _apply_common_filters(q, status=status, source=source, h1b_verdict=h1b_verdict,
+                              min_score=min_score, saved=saved, title_search=title_search,
+                              remote=remote, location=location, arrangement=arrangement, min_salary=min_salary, max_salary=max_salary,
+                              search_id=search_id)
+    raw_names = [r[0] for r in q.all()]
+    lookup = build_company_lookup(db)
+    canonical = set()
+    for raw in raw_names:
+        co = lookup.get((raw or "").lower())
+        canonical.add(co.name if co else raw)
+    return sorted(canonical, key=str.lower)
+
+
+@router.get("/sources/list")
+def list_job_sources(
+    counts: Optional[bool] = None,
+    status: Optional[str] = None,
+    company: Optional[str] = None,
+    h1b_verdict: Optional[str] = None,
+    min_score: Optional[int] = None,
+    saved: Optional[bool] = None,
+    title_search: Optional[str] = None,
+    remote: Optional[bool] = None,
+    location: Optional[str] = None,
+    arrangement: Optional[str] = None,
+    min_salary: Optional[int] = None,
+    max_salary: Optional[int] = None,
+    search_id: Optional[str] = None,
+    db: Session = Depends(get_db), firm_id=Depends(reader_firm_id),
+):
+    """Return distinct source values from jobs matching current filters, sorted."""
+    company = _expand_company_filter(db, company)
+    # ?counts=1 returns [{name, count}] so the dropdown can show how many jobs each value has
+    q = (scoped_jobs(db, firm_id, Job.source, func.count(Job.id)) if counts else scoped_jobs(db, firm_id, Job.source).distinct()).filter(Job.source.isnot(None), Job.source != "")
+    q = _apply_common_filters(q, status=status, company=company, h1b_verdict=h1b_verdict,
+                              min_score=min_score, saved=saved, title_search=title_search,
+                              remote=remote, location=location, arrangement=arrangement, min_salary=min_salary, max_salary=max_salary,
+                              search_id=search_id)
+    if counts:
+        return [{"name": r[0], "count": r[1]} for r in q.group_by(Job.source).order_by(Job.source).all()]
+    rows = q.order_by(Job.source).all()
+    return [r[0] for r in rows]
+
+
+@router.get("/verdicts/list")
+def list_job_verdicts(
+    counts: Optional[bool] = None,
+    status: Optional[str] = None,
+    company: Optional[str] = None,
+    source: Optional[str] = None,
+    min_score: Optional[int] = None,
+    saved: Optional[bool] = None,
+    title_search: Optional[str] = None,
+    remote: Optional[bool] = None,
+    location: Optional[str] = None,
+    arrangement: Optional[str] = None,
+    min_salary: Optional[int] = None,
+    max_salary: Optional[int] = None,
+    search_id: Optional[str] = None,
+    db: Session = Depends(get_db), firm_id=Depends(reader_firm_id),
+):
+    """Return distinct h1b_verdict values from jobs matching current filters."""
+    company = _expand_company_filter(db, company)
+    # ?counts=1 returns [{name, count}] so the dropdown can show how many jobs each value has
+    q = (scoped_jobs(db, firm_id, Job.h1b_verdict, func.count(Job.id)) if counts else scoped_jobs(db, firm_id, Job.h1b_verdict).distinct()).filter(Job.h1b_verdict.isnot(None), Job.h1b_verdict != "")
+    q = _apply_common_filters(q, status=status, company=company, source=source,
+                              min_score=min_score, saved=saved, title_search=title_search,
+                              remote=remote, location=location, arrangement=arrangement, min_salary=min_salary, max_salary=max_salary,
+                              search_id=search_id)
+    if counts:
+        return [{"name": r[0], "count": r[1]} for r in q.group_by(Job.h1b_verdict).order_by(Job.h1b_verdict).all()]
+    rows = q.order_by(Job.h1b_verdict).all()
+    return [r[0] for r in rows]
+
+
+# The Score menu's preset thresholds; `score_bands` answers "how many would each
+# of these leave?" over everything the other filters already narrowed to.
+_SCORE_BANDS = (70, 80, 90)
+# The fixed order the feed's H-1B menu lists verdicts in.
+_VERDICT_ORDER = {"likely": 0, "possible": 1, "unlikely": 2, "unknown": 3}
+
+
+@router.get("/facets")
+def job_facets(
+    status: Optional[str] = None,
+    company: Optional[str] = None,
+    source: Optional[str] = None,
+    h1b_verdict: Optional[str] = None,
+    min_score: Optional[int] = None,
+    saved: Optional[bool] = None,
+    title_search: Optional[str] = None,
+    remote: Optional[bool] = None,
+    location: Optional[str] = None,
+    arrangement: Optional[str] = None,
+    min_salary: Optional[int] = None,
+    max_salary: Optional[int] = None,
+    search_id: Optional[str] = None,
+    db: Session = Depends(get_db), firm_id=Depends(reader_firm_id),
+):
+    """Every filter menu's options and counts in one answer, so the feed's menus
+    narrow each other instead of each showing global totals.
+
+    Takes the same query params as GET /jobs and runs them through the same filter
+    builder (`_apply_common_filters`). Each dimension is counted over the jobs
+    matching all the OTHER active filters but NOT its own — with Company = Acme
+    selected, `companies` still lists every other company that survives the rest of
+    the filters, so you can switch selection without clearing first.
+
+    Counts are over the whole result set, not the loaded page. A value that is
+    currently selected but no longer matches is still listed, with count 0, so the
+    menu can show it as picked instead of dropping it silently.
+
+    Returns {companies, sources, h1b_verdicts, statuses, locations, score_bands},
+    each a list of {name, count}; `score_bands` names the threshold ("70") and
+    counts the jobs at or above it with the score filter itself lifted.
+    `locations` carries a `key` for the filter and a `level` (0 country, 1 region,
+    2 city) for the menu's indentation, and a country's count includes every job
+    under it.
+    """
+    expanded = _expand_company_filter(db, company)
+    base = dict(status=status, company=expanded, source=source, h1b_verdict=h1b_verdict,
+                min_score=min_score, saved=saved, title_search=title_search, remote=remote, location=location, arrangement=arrangement,
+                min_salary=min_salary, max_salary=max_salary, search_id=search_id)
+
+    def _counts(col, drop):
+        """(value, count) rows for one column with that column's own filter lifted."""
+        kw = dict(base)
+        kw[drop] = None
+        q = scoped_jobs(db, firm_id, col, func.count(Job.id)).filter(col.isnot(None), col != "")
+        return _apply_common_filters(q, **kw).group_by(col).all()
+
+    def _pad(rows, selected):
+        """Keep a selected-but-now-empty value in the menu, at 0."""
+        have = {name for name, _ in rows}
+        return rows + [(v, 0) for v in selected if v not in have]
+
+    def _picked(raw):
+        return [v.strip() for v in (raw or "").split(",") if v.strip()]
+
+    # companies — aliases collapse onto their parent, as in /jobs/companies/list
+    from backend.models.db import build_company_lookup
+    lookup = build_company_lookup(db)
+    agg: dict[str, int] = {}
+    for name, cnt in _counts(Job.company, "company"):
+        co = lookup.get((name or "").lower())
+        cname = co.name if co else name
+        agg[cname] = agg.get(cname, 0) + cnt
+    # the selection is checked against the names the UI shows (canonical), not the
+    # alias-expanded list the query ran with
+    for picked in _picked(company):
+        co = lookup.get(picked.lower())
+        cname = co.name if co else picked
+        agg.setdefault(cname, 0)
+    companies = [{"name": n, "count": c}
+                 for n, c in sorted(agg.items(), key=lambda x: (-x[1], x[0].lower()))]
+
+    sources = [{"name": n, "count": c}
+               for n, c in sorted(_pad(_counts(Job.source, "source"), _picked(source)),
+                                  key=lambda x: x[0])]
+    verdicts = [{"name": n, "count": c}
+                for n, c in sorted(_pad(_counts(Job.h1b_verdict, "h1b_verdict"), _picked(h1b_verdict)),
+                                   key=lambda x: (_VERDICT_ORDER.get(x[0], 99), x[0]))]
+    statuses = [{"name": n, "count": c}
+                for n, c in sorted(_pad(_counts(Job.status, "status"), _picked(status)),
+                                   key=lambda x: x[0])]
+
+    # locations — one row per resolved place, rolled up so a country carries the
+    # sum of its regions and cities. The list is ordered coarse to fine, which is
+    # how the menu indents it.
+    from backend.analyzer.location import label_for, key_for
+    loc_kw = dict(base)
+    loc_kw["location"] = None
+    from backend.models.db import JobLocation
+    loc_rows = _apply_common_filters(
+        scoped_jobs(db, firm_id, JobLocation.country, JobLocation.region, JobLocation.city,
+                 func.count(func.distinct(Job.id))),
+        **loc_kw
+    ).join(JobLocation, JobLocation.job_id == Job.id).filter(
+        JobLocation.country.isnot(None)).group_by(
+        JobLocation.country, JobLocation.region, JobLocation.city).all()
+
+    from backend.analyzer.location import split_key
+
+    # The candidate places, then a count per place under exactly the predicate
+    # `_location_clause` uses. Counting by a plain group-by instead would make
+    # the menu disagree with the click: a row stored as "Canada" with no region
+    # answers a "BC, Canada" filter, and must therefore be counted under it.
+    candidates = set()
+    for country, region, city, _cnt in loc_rows:
+        candidates.add((country, None, None))
+        if region:
+            candidates.add((country, region, None))
+        if city:
+            candidates.add((country, region, city))
+    # A city seen both with and without a region yields two keys for one set of
+    # jobs. The region-bearing key already reaches the region-less rows, so the
+    # bare one is dropped.
+    with_region = {(c, city) for c, r, city in candidates if r and city}
+    candidates = {(c, r, city) for c, r, city in candidates
+                  if r or not city or (c, city) not in with_region}
+    candidates.update(split_key(k) for k in _picked(location))
+
+    def _covers(key, row):
+        kc, kr, kcity = key
+        rc, rr, rcity = row
+        if kc and rc != kc:
+            return False
+        if kr and rr != kr and not (kcity and rr is None):
+            return False
+        if kcity and rcity != kcity:
+            return False
+        return True
+
+    roll = {key: sum(cnt for country, region, city, cnt in loc_rows
+                     if _covers(key, (country, region, city)))
+            for key in candidates}
+
+    def _depth(entry):
+        country, region, city = entry
+        if city:
+            return 2 if region else 1
+        return 1 if region else 0
+
+    # A city that is also its region's name ("Sao Paulo, Sao Paulo, Brazil") is
+    # one place, not two levels: keep the region entry, drop the city one when
+    # it counts the same jobs.
+    def _same_place(entry):
+        country, region, city = entry
+        return bool(region and city and region.strip().lower() == city.strip().lower()
+                    and roll.get((country, region, None)) == roll.get(entry))
+    roll = {k: v for k, v in roll.items() if not _same_place(k)}
+
+    # Busiest first at every level, tree order kept: a country row, then its
+    # regions by count, each followed by its cities by count; region-less
+    # cities sort with the regions.
+    def _order(kv):
+        (country, region, city), count = kv
+        cc = roll.get((country, None, None), 0)
+        if not region and not city:
+            return (-cc, country or "", 0, 0, "", 0, 0, "")
+        rc = roll.get((country, region, None), count) if region else count
+        if region and not city:
+            return (-cc, country or "", 1, -rc, region, 0, 0, "")
+        return (-cc, country or "", 1, -rc, region or "", 1, -count, city or "")
+
+    locations = [
+        {"key": key_for(*entry), "name": label_for(*entry),
+         "count": count, "level": _depth(entry)}
+        for entry, count in sorted(roll.items(), key=_order)
+    ]
+
+    # arrangements — counted with the arrangement filter itself lifted. A posting
+    # offered two ways is counted under both, so these do not sum to the total.
+    arr_kw = dict(base)
+    arr_kw["arrangement"] = None
+    arrangements = []
+    for value in ARRANGEMENTS:
+        clause = _arrangement_clause(value)
+        q = _apply_common_filters(scoped_jobs(db, firm_id, func.count(func.distinct(Job.id))), **arr_kw)
+        arrangements.append({"name": value,
+                             "count": int(q.filter(clause).scalar() or 0)})
+
+    # score bands: the score filter is the one lifted, so each preset says how many
+    # jobs it would leave from where the other filters already stand
+    score_kw = dict(base)
+    score_kw["min_score"] = None
+    score_bands = []
+    for n in _SCORE_BANDS:
+        q = _apply_common_filters(scoped_jobs(db, firm_id, func.count(Job.id)), **score_kw)
+        score_bands.append({"name": str(n),
+                            "count": int(q.filter(Job.best_cv_score >= float(n)).scalar() or 0)})
+
+    return {
+        "companies": companies,
+        "sources": sources,
+        "h1b_verdicts": verdicts,
+        "statuses": statuses,
+        "locations": locations,
+        "arrangements": arrangements,
+        "score_bands": score_bands,
+    }
+
+
+@router.post("/save-from-extension")
+async def save_from_extension(body: dict, db: Session = Depends(get_db), firm_id=Depends(writer_firm_id),
+                              principal: Principal = Depends(current_principal)):
+    """Save a job from the Chrome Extension to the Job Feed (no application created), running the same enrichment as LinkedIn passive capture: Extension search title/company filters, salary extraction, H-1B/body-exclusion scan, and auto-score when configured."""
+    from backend.analyzer.h1b_checker import check_job_h1b
+    from backend.models.db import Search
+    import uuid as _uuid
+    import re as _re
+
+    # str_field answers 400 for a wrongly typed value the same way the blank
+    # checks below answer 400 for an empty one (R4-T1-20).
+    title = str_field(body, "title")
+    company = str_field(body, "company")
+    url = str_field(body, "url")
+    description = str_field(body, "description") or None
+    if not title or not company or not url:
+        raise HTTPException(status_code=400, detail="title, company, and url are required")
+
+    # Pull the per-company H-1B median (used by salary fallback) if we know the company.
+    comp_obj = find_company_by_name(db, company)
+
+    external_id = make_external_id(company, title, url)
+    content_hash = make_content_hash(company, title)
+
+    # Two-layer dedup: external_id (URL-based) first, falling back to content_hash
+    # (company+title) for cross-source catches where the same job was saved via a different URL.
+    existing = db.query(Job).filter(
+        (Job.external_id == external_id) | (Job.content_hash == content_hash)
+    ).first()
+    if existing:
+        if existing.status == "skip":
+            existing.status = "new"
+        # Backfill description if missing — share salary fallback shape with insert path.
+        if description and not existing.description:
+            existing.description = description
+            from backend.analyzer.h1b_checker import resolve_company_h1b
+            _hd = await resolve_company_h1b(db, existing.company or "", allow_live=False)
+            apply_salary_to_job(existing, (_hd or {}).get("median_salary"))
+            apply_arrangement_to_job(existing)
+            apply_location_to_job(existing)
+        link_job_to_firm(db, firm_id, existing.id, "CAPTURED", captured_by_user_id=principal.user_id)
+        db.commit()
+        # `saved` is the field the extension reads — a row sitting at `ignored` never
+        # reaches the feed, and re-saving it will not change that.
+        out = {"id": str(existing.id), "company": existing.company, "title": existing.title,
+               "new": False, "saved": existing.status != "ignored", "status": existing.status}
+        if existing.status == "ignored":
+            out["reason"] = "already saved earlier and filtered out then — it stays out of the feed"
+        return out
+
+    # Link to the hardcoded "Extension" search (manual Save-to-Job-Feed flow); "Extension LI"
+    # is reserved for passive LinkedIn-collections capture so the two flows can have independent configs.
+    ext_search = db.query(Search).filter(Search.search_mode == "extension").first()
+
+    # Apply per-search title + company filters (parity with linkedin_extension); rejected jobs
+    # are still saved as 'ignored' so dedup keys stick. reject_message is user-facing, filter_reject_reason is the log line.
+    filter_reject_reason = None
+    reject_message = None
+    if ext_search is not None:
+        from backend.models.db import get_global_title_exclude
+        title_lower = title.lower()
+        include_kw = ext_search.title_include_keywords or []
+        exclude_kw = list(set((ext_search.title_exclude_keywords or []) + get_global_title_exclude(db)))
+        if include_kw and not any(kw.lower() in title_lower for kw in include_kw):
+            filter_reject_reason = f"title-include miss: needed any of {include_kw}"
+            reject_message = ("title matches none of the required keywords ("
+                              + ", ".join(include_kw) + ")")
+        if not filter_reject_reason and exclude_kw:
+            matched = [kw for kw in exclude_kw if _re.search(r'\b' + _re.escape(kw) + r'\b', title, _re.IGNORECASE)]
+            if matched:
+                filter_reject_reason = f"title-exclude hit: {', '.join(matched)}"
+                reject_message = "title excluded by " + ", ".join(f"'{kw}'" for kw in matched)
+        if not filter_reject_reason:
+            company_lower = company.lower()
+            for excl in (ext_search.company_exclude or []):
+                if excl and excl.lower() == company_lower:
+                    filter_reject_reason = f"company-exclude: {excl}"
+                    reject_message = f"company excluded by '{excl}'"
+                    break
+
+    job = Job(
+        external_id=external_id,
+        content_hash=content_hash,
+        company=company,
+        title=title,
+        url=url,
+        description=description,
+        source="extension",
+        search_id=ext_search.id if ext_search else None,
+        status="new",
+    )
+
+    # H-1B + body-exclusion scan, then salary (reuses the cache median that
+    # check_job_h1b stashes). `check_job_h1b` already sets job.h1b_verdict.
+    try:
+        await check_job_h1b(job, db)
+    except Exception as e:
+        logger.warning(f"save-from-extension: analysis failed for '{title}' @ '{company}': {e}")
+
+    if description:
+        apply_salary_to_job(job, getattr(job, "_h1b_median", None))
+    apply_arrangement_to_job(job)
+    apply_location_to_job(job)
+
+    # Skip flagged jobs OR jobs that hit the search-filter set.
+    if filter_reject_reason:
+        logger.info(f"save-from-extension: filtered — '{title}' @ '{company}' — {filter_reject_reason}")
+        job.status = "ignored"
+    elif job.h1b_jd_flag:
+        _phrase = getattr(job, "_h1b_matched_phrase", None) or "?"
+        logger.info(f"save-from-extension: skipping (body exclusion) — '{title}' @ '{company}' — phrase: {_phrase!r}")
+        job.status = "ignored"
+        reject_message = f"description matched the excluded phrase '{_phrase}'"
+
+    db.add(job)
+    db.flush()
+    link_job_to_firm(db, firm_id, job.id, "CAPTURED", search_id=job.search_id, captured_by_user_id=principal.user_id)
+    db.commit()
+    db.refresh(job)
+
+    # Auto-score chain — fire only for kept jobs and only when the extension search
+    # opted in via auto_scoring_depth. Same pattern as the LinkedIn import endpoint.
+    if (
+        job.status == "new"
+        and ext_search is not None
+        and ext_search.auto_scoring_depth in ("light", "full")
+    ):
+        try:
+            from backend.analyzer.cv_scorer import score_single_job
+            launch_background(
+                "analyze_job",
+                score_single_job,
+                trigger="manual",
+                scope_key=f"{job.id}:extension",
+                target_job_id=_uuid.UUID(str(job.id)),
+                meta={
+                    "resume_names": _score_resume_names(db, job, firm_id),
+                    "depth": ext_search.auto_scoring_depth,
+                },
+                func_kwargs={"job_id": str(job.id), "depth": ext_search.auto_scoring_depth, "firm_id": firm_id},
+            )
+        except JobAlreadyRunningError:
+            pass
+        except Exception as e:
+            logger.warning(f"save-from-extension: auto-score launch failed for {job.id}: {e}")
+
+    out = {
+        "id": str(job.id),
+        "company": job.company,
+        "title": job.title,
+        "new": True,
+        # The row is always written (the dedup keys have to stick), but `saved`
+        # says whether it actually reached the feed.
+        "saved": job.status == "new",
+        "status": job.status,
+        "h1b_jd_flag": bool(job.h1b_jd_flag),
+    }
+    if job.status == "ignored":
+        out["reason"] = reject_message or "filtered out by your Extension search rules"
+    return out
+
+
+# Statuses a hand-added feed job may start at. `applied` is not one of them:
+# POST /applications owns that path and writes the Application row with it.
+MANUAL_JOB_STATUSES = {"new", "saved"}
+
+
+@router.post("/manual")
+def create_manual_job(body: dict, background_tasks: BackgroundTasks, db: Session = Depends(get_db),
+                      firm_id=Depends(writer_firm_id), principal: Principal = Depends(current_principal)):
+    """Add one job to the feed by hand (Log-application modal, statuses new/saved), with no application attached; an already-known posting keeps the status it has and is returned with created=false."""
+    title = str_field(body, "title")
+    company = str_field(body, "company")
+    url = str_field(body, "url")
+    status = str_field(body, "status") or "new"
+    if not title or not company or not url:
+        raise HTTPException(status_code=400, detail="title, company, and url are required")
+    if status not in MANUAL_JOB_STATUSES:
+        raise HTTPException(status_code=400,
+                            detail=f"status must be one of {sorted(MANUAL_JOB_STATUSES)}")
+
+    # Same two-layer dedup as save-from-extension: external_id (URL), then
+    # content_hash (company+title) for the same posting reached by another URL.
+    external_id = make_external_id(company, title, url)
+    content_hash = make_content_hash(company, title)
+    existing = db.query(Job).filter(
+        (Job.external_id == external_id) | (Job.content_hash == content_hash)
+    ).first()
+    if existing:
+        # Report the row, change nothing: an `applied` or `ignored` posting must
+        # not fall back to `new` because the user pasted its URL a second time. The firm does see it now.
+        link_job_to_firm(db, firm_id, existing.id, "CAPTURED", captured_by_user_id=principal.user_id)
+        db.commit()
+        return {"id": str(existing.id), "created": False, "status": existing.status}
+
+    job = Job(
+        external_id=external_id,
+        content_hash=content_hash,
+        company=company,
+        title=title,
+        url=url,
+        source="manual",   # same marker the hand-logged application path uses
+        status=status,
+        location=str_field(body, "location") or None,
+        # `saved` and status='saved' move together everywhere else in the feed.
+        saved=(status == "saved"),
+        seen=True,         # the user typed this row in; it is not an unseen find
+    )
+    # A hand-added job has to answer the feed's Location and Work filters like any
+    # other. There is no description yet, so only the title and a typed-in
+    # location can say anything; the background fetch below covers the rest.
+    apply_arrangement_to_job(job)
+    apply_location_to_job(job)
+    db.add(job)
+    db.flush()
+    link_job_to_firm(db, firm_id, job.id, "CAPTURED", captured_by_user_id=principal.user_id)
+    db.commit()
+    db.refresh(job)
+
+    # The enrichment the hand-logged application path runs: without it the first
+    # score, tailor or cover letter pays for the fetch.
+    from backend.api.routes_applications import _cache_job_page, _fetch_and_store_description
+    background_tasks.add_task(_cache_job_page, str(job.id), url)
+    background_tasks.add_task(_fetch_and_store_description, str(job.id), url)
+
+    return {"id": str(job.id), "created": True, "status": job.status}
+
+
+# Column types for the three fields both job writers accept. Without this a
+# `{"saved": "banana"}` reaches the driver and 500s (R4-T1-11); `status` stays a
+# free string on purpose (the feed invents statuses like "ignored").
+_JOB_UPDATE_TYPES = {"seen": bool, "saved": bool, "status": str}
+
+
+def _validate_job_updates(updates: dict, allowed: set) -> None:
+    """400 on a value whose type the column cannot hold. Keys outside the
+    allow-list are ignored here — they are dropped silently downstream."""
+    for key, value in updates.items():
+        if key not in allowed:
+            continue
+        expected = _JOB_UPDATE_TYPES.get(key)
+        if expected is None or value is None:
+            continue
+        if expected is bool:
+            if not isinstance(value, bool):
+                raise HTTPException(status_code=400,
+                                    detail=f"{key} must be true or false")
+        elif not isinstance(value, expected):
+            raise HTTPException(status_code=400,
+                                detail=f"{key} must be a string")
+
+
+@router.post("/bulk-update")
+def bulk_update_jobs(body: dict, db: Session = Depends(get_db), firm_id=Depends(reader_firm_id)):
+    """Bulk update multiple jobs at once (status, seen, saved); returns {"updated": count, "not_found": [<ids>]} so the frontend can reconcile stale client-side selections."""
+    import uuid as _uuid
+    job_ids = body.get("job_ids") or []
+    updates = body.get("updates") or {}
+    if not isinstance(job_ids, (list, tuple)):
+        raise HTTPException(status_code=422, detail="job_ids must be a list")
+    if not isinstance(updates, dict):
+        raise HTTPException(status_code=422, detail="updates must be an object")
+    allowed = {"status", "seen", "saved"}
+    _validate_job_updates(updates, allowed)
+    count = 0
+    not_found: list[str] = []
+    for job_id in job_ids:
+        # A non-uuid used to raise DataError mid-loop, so the whole batch aborted
+        # with a bare 404 and every valid id in it was silently dropped
+        # (R4-T1-12). Report it alongside the ids that simply do not exist.
+        try:
+            parsed = _uuid.UUID(str(job_id))
+        except (ValueError, AttributeError, TypeError):
+            not_found.append(str(job_id))
+            continue
+        job = scoped_jobs(db, firm_id).filter(Job.id == parsed).first()
+        if job:
+            for k, v in updates.items():
+                if k in allowed:
+                    setattr(job, k, v)
+            count += 1
+        else:
+            not_found.append(str(job_id))
+    db.commit()
+    return {"updated": count, "not_found": not_found}
+
+
+@router.get("/{job_id}")
+def get_job(job_id: str, db: Session = Depends(get_db), firm_id=Depends(reader_firm_id)):
+    from backend.models.db import Resume
+    job = scoped_jobs(db, firm_id).filter(Job.id == job_id).first()
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    tailored = scoped(db, Resume, firm_id, Resume.id).filter(
+        Resume.job_id == job.id, Resume.is_base == False
+    ).order_by(Resume.updated_at.desc()).first()
+    import backend.job_monitor as _mon
+    running = [r for r in _mon._running.values() if r.target_job_id == job.id]
+    return _job_to_dict(
+        job,
+        tailored_resume_id=tailored[0] if tailored else None,
+        in_flight=[r.job_type for r in running],
+        in_flight_detail=[{"job_type": r.job_type, "meta": r.meta} for r in running],
+    )
+
+
+@router.patch("/{job_id}")
+async def update_job(job_id: str, updates: dict, background_tasks: BackgroundTasks, db: Session = Depends(get_db),
+                     firm_id=Depends(writer_firm_id)):
+    # Must be async — launch_background() uses asyncio.create_task(), which needs a running
+    # event loop; a sync endpoint's threadpool has none, so the task would silently never start.
+    job = scoped_jobs(db, firm_id).filter(Job.id == job_id).first()
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    allowed = {"seen", "saved", "status"}
+    _validate_job_updates(updates, allowed)
+    for key, value in updates.items():
+        if key in allowed:
+            setattr(job, key, value)
+    db.commit()
+
+    # Trigger CV scoring when job is saved (respects on_save_action); launched as a tracked
+    # op so it shows in /monitor/in-flight + /monitor/finished, driving the dashboard's scoring toasts.
+    if updates.get("saved") is True and not job.cv_scores:
+        from backend.models.db import Setting
+        on_save_row = db.query(Setting).filter(Setting.key == "on_save_action").first()
+        on_save = on_save_row.value if on_save_row and on_save_row.value else "off"
+        if on_save != "off":
+            try:
+                from backend.analyzer.cv_scorer import score_single_job
+                launch_background(
+                    "analyze_job",
+                    score_single_job,
+                    trigger="manual",
+                    scope_key=f"{job.id}:on-save",
+                    target_job_id=job.id,
+                    meta={"resume_names": _score_resume_names(db, job, firm_id), "depth": on_save},
+                    func_kwargs={"job_id": str(job.id), "depth": on_save, "firm_id": firm_id},
+                )
+            except JobAlreadyRunningError:
+                pass  # already scoring this job — the save itself still succeeds
+            except Exception as e:
+                logger.warning(f"on-save auto-score launch failed for {job.id}: {e}")
+
+    # "Applied" is a compound action that can create an Application and a Company alongside
+    # the status change; report what it created so the Feed's Undo can reverse all of it.
+    created_application_id = None
+    created_company_id = None
+
+    if updates.get("status") == "applied":
+        if job.url and not job.has_cached_page:
+            from backend.api.routes_applications import _cache_job_page
+            background_tasks.add_task(_cache_job_page, str(job.id), job.url)
+
+        from backend.models.db import Application
+        from datetime import datetime, timezone
+        existing_app = scoped(db, Application, firm_id).filter(Application.job_id == job.id).first()
+        if not existing_app:
+            app = Application(firm_id=firm_id, job_id=job.id, status="applied",
+                              status_transitions=[{"from": None, "to": "applied", "at": datetime.now(timezone.utc).isoformat(), "source": "ui"}])
+            db.add(app)
+            db.commit()
+            created_application_id = str(app.id)
+
+        if job.company and job.company.strip():
+            from backend.models.db import Company, Setting
+            from backend.models.db import find_company_by_name
+            existing_co = find_company_by_name(db, job.company.strip())
+            if not existing_co:
+                default_resume_row = db.query(Setting).filter(Setting.key == "default_resume_id").first()
+                default_resume_ids = [default_resume_row.value] if default_resume_row and default_resume_row.value else []
+                new_co = Company(
+                    name=job.company.strip(), tier=None, active=False, playwright_enabled=False,
+                    selected_resume_ids=default_resume_ids,
+                )
+                db.add(new_co)
+                db.commit()
+                created_company_id = str(new_co.id)
+                from backend.analyzer.h1b_checker import fetch_h1b_for_company_id
+                background_tasks.add_task(fetch_h1b_for_company_id, str(new_co.id))
+
+    result = _job_to_dict(job)
+    result["created_application_id"] = created_application_id
+    result["created_company_id"] = created_company_id
+    return result
+
+
+@router.post("/cache-applied")
+def cache_applied_jobs(background_tasks: BackgroundTasks, db: Session = Depends(get_db), firm_id=Depends(reader_firm_id)):
+    """Cache pages for all applied jobs that don't have a cached page yet."""
+    jobs = scoped_jobs(db, firm_id).filter(
+        Job.status == "applied",
+        Job.url.isnot(None),
+        Job.cached_page_html.is_(None),
+    ).all()
+
+    for job in jobs:
+        from backend.api.routes_applications import _cache_job_page
+        background_tasks.add_task(_cache_job_page, str(job.id), job.url)
+
+    return {"queued": len(jobs)}
+
+
+def _reader_html(body_html: str, meta: str) -> str:
+    """Wrap cleaned posting HTML in the shared reader shell (used by the cached-page and live-page endpoints)."""
+    return f"""<!DOCTYPE html>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+         max-width: 800px; margin: 0 auto; padding: 24px 32px; line-height: 1.7; color: #1a1a1a;
+         font-size: 15px; }}
+  h1 {{ font-size: 1.5em; margin-top: 1.5em; margin-bottom: 0.5em; color: #111; }}
+  h2 {{ font-size: 1.3em; margin-top: 1.4em; margin-bottom: 0.4em; color: #222; }}
+  h3, h4, h5, h6 {{ font-size: 1.1em; margin-top: 1.2em; margin-bottom: 0.3em; color: #333; }}
+  p {{ margin: 0.6em 0; }}
+  ul, ol {{ padding-left: 1.5em; margin: 0.5em 0; }}
+  li {{ margin-bottom: 0.4em; }}
+  a {{ color: #2563eb; text-decoration: none; }}
+  a:hover {{ text-decoration: underline; }}
+  table {{ border-collapse: collapse; width: 100%; margin: 1em 0; }}
+  td, th {{ border: 1px solid #e5e7eb; padding: 8px 12px; text-align: left; }}
+  th {{ background: #f9fafb; font-weight: 600; }}
+  blockquote {{ border-left: 3px solid #d1d5db; padding-left: 1em; color: #4b5563; margin: 1em 0; }}
+  pre, code {{ background: #f3f4f6; padding: 2px 6px; border-radius: 3px; font-size: 0.9em; }}
+  hr {{ border: none; border-top: 1px solid #e5e7eb; margin: 1.5em 0; }}
+  .cache-meta {{ color: #9ca3af; font-size: 12px; border-bottom: 1px solid #f3f4f6; padding-bottom: 12px; margin-bottom: 16px; }}
+</style></head><body>
+<div class="cache-meta">{meta}</div>
+{body_html}
+</body></html>"""
+
+
+_READER_CSP = {"Content-Security-Policy": "sandbox; default-src 'unsafe-inline'; style-src 'unsafe-inline'"}
+
+
+@router.get("/{job_id}/cached-page")
+def get_cached_page(job_id: str, db: Session = Depends(get_db), firm_id=Depends(reader_firm_id)):
+    """Return the cached page as clean, readable HTML."""
+    job = scoped_jobs(db, firm_id).filter(Job.id == job_id).first()
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    if not job.cached_page_html:
+        raise HTTPException(status_code=404, detail="No cached page available")
+    cached_at = job.page_cached_at.strftime("%b %d, %Y") if job.page_cached_at else "Unknown"
+    return HTMLResponse(content=_reader_html(job.cached_page_html, f"Cached on {cached_at}"), headers=_READER_CSP)
+
+
+@router.get("/{job_id}/frame-check")
+async def frame_check(job_id: str, db: Session = Depends(get_db), firm_id=Depends(reader_firm_id)):
+    """Report whether the posting can be embedded in an iframe without the extension; blocks only on a confident framing signal (X-Frame-Options or a CSP frame-ancestors directive) on a successful fetch, and treats a fetch error as embeddable so the feed still tries the live preview."""
+    job = scoped_jobs(db, firm_id).filter(Job.id == job_id).first()
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    if not job.url:
+        return {"embeddable": False}
+    from backend.scraper._shared.url_safety import safe_get, UnsafeURLError
+    try:
+        resp = await safe_get(job.url, timeout=12, headers={
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+        })
+        xfo = (resp.headers.get("x-frame-options") or "").strip()
+        csp = (resp.headers.get("content-security-policy") or "").lower()
+        blocked = bool(xfo) or ("frame-ancestors" in csp)
+        return {"embeddable": not blocked}
+    except UnsafeURLError:
+        return {"embeddable": False}
+    except Exception:
+        return {"embeddable": True}   # unknown — let the browser try the live frame
+
+
+def _inject_base(raw_html: str, url: str) -> str:
+    """Return the page's own HTML with a <base href> so its relative CSS/images/links resolve against the source, with its embedded CSP <meta> stripped (would otherwise block the render); scripts are neutered by the iframe sandbox, not here."""
+    import re
+    import html as _html
+    raw_html = re.sub(
+        r'<meta[^>]+http-equiv=["\']?content-security-policy["\']?[^>]*>',
+        '', raw_html, flags=re.IGNORECASE)
+    base_tag = f'<base href="{_html.escape(url, quote=True)}">'
+    m = re.search(r'<head[^>]*>', raw_html, flags=re.IGNORECASE)
+    if m:
+        return raw_html[:m.end()] + base_tag + raw_html[m.end():]
+    return base_tag + raw_html
+
+
+@router.get("/{job_id}/live-page")
+async def get_live_page(job_id: str, db: Session = Depends(get_db), firm_id=Depends(reader_firm_id),
+                        principal: Principal = Depends(current_principal)):
+    """Fetch the posting from the backend (SSRF-guarded) and return its own HTML so the feed can show the real page even when the extension isn't stripping X-Frame-Options; warms the cached_page_* columns as a side effect."""
+    job = scoped_jobs(db, firm_id).filter(Job.id == job_id).first()
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    if not job.url:
+        raise HTTPException(status_code=404, detail="No posting URL captured for this job")
+
+    from backend.scraper._shared.url_safety import safe_get, UnsafeURLError
+    from backend.api.routes_applications import _extract_clean_content
+    try:
+        resp = await safe_get(job.url, timeout=20, headers={
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        })
+        resp.raise_for_status()
+        raw = resp.text[:2_000_000]
+    except UnsafeURLError:
+        raise HTTPException(status_code=400, detail="URL not allowed")
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Could not fetch posting: {e}")
+    if not (raw or "").strip():
+        raise HTTPException(status_code=502, detail="Posting returned no content")
+    # Probe: is there real server-rendered content, or a client-side app shell? JS-rendered
+    # postings come back near-empty (just a spinner without scripts) — treat that as a failure.
+    clean_html, text = _extract_clean_content(raw)
+    if len((text or "").strip()) < 200:
+        raise HTTPException(status_code=502, detail="Posting is rendered client-side — needs the extension")
+    # warm the cache with cleaned text for scoring; never overwrite an existing snapshot. A support view only reads
+    # (07 §4), so it leaves the job as it found it.
+    if not job.cached_page_html and clean_html and not is_support_view(principal):
+        try:
+            job.cached_page_html = clean_html
+            job.cached_page_text = text
+            db.commit()
+        except Exception:
+            db.rollback()
+    return HTMLResponse(content=_inject_base(raw, str(resp.url)), headers=_READER_CSP)
+
+
+def _normalize_report(report, best_cv):
+    """Ensure scoring_report is always in nested {cv_name: report} format."""
+    if not report:
+        return None
+    # Already nested format: check if any value is a dict with 'summary'
+    if isinstance(report, dict) and "summary" not in report:
+        return report
+    # Flat format: wrap in {cv_name: report}
+    if isinstance(report, dict) and "summary" in report:
+        report = dict(report)
+        cv_name = report.pop("scored_with", best_cv or "Unknown")
+        return {cv_name: report}
+    return report
+
+
+def _job_to_dict(j: Job, tailored_resume_id=None, in_flight: list[str] | None = None,
+                 in_flight_detail: list[dict] | None = None) -> dict:
+    scores = j.cv_scores or {}
+    numeric_scores = [v for v in scores.values() if isinstance(v, (int, float))]
+    best_score = max(numeric_scores) if numeric_scores else 0
+    return {
+        "id": str(j.id),
+        "external_id": j.external_id,
+        "company": j.company,
+        "title": j.title,
+        "url": j.url,
+        "source": j.source,
+        "search_id": str(j.search_id) if j.search_id else None,
+        "description": j.description,
+        "location": j.location,
+        "remote": j.remote,
+        # The set, so the feed can show every arrangement a posting offers.
+        "arr_remote": j.arr_remote,
+        "arr_hybrid": j.arr_hybrid,
+        "arr_onsite": j.arr_onsite,
+        "salary_min": j.salary_min,
+        "salary_max": j.salary_max,
+        "salary_source": j.salary_source,
+        "h1b_company_lca_count": j.h1b_company_lca_count,
+        "h1b_company_approval_rate": j.h1b_company_approval_rate,
+        "h1b_jd_flag": j.h1b_jd_flag,
+        "h1b_jd_snippet": j.h1b_jd_snippet,
+        "h1b_verdict": j.h1b_verdict,
+        "cv_scores": scores,
+        "best_cv": j.best_cv,
+        "scoring_report": _normalize_report(j.scoring_report, j.best_cv),
+        "best_score": best_score,
+        "has_cached_page": bool(j.has_cached_page),
+        "page_cached_at": j.page_cached_at.isoformat() if j.page_cached_at else None,
+        "seen": j.seen,
+        "saved": j.saved,
+        "status": j.status,
+        "discovered_at": j.discovered_at.isoformat() if j.discovered_at else None,
+        "has_tailored_resume": tailored_resume_id is not None,
+        "tailored_resume_id": str(tailored_resume_id) if tailored_resume_id else None,
+        "in_flight": in_flight or [],
+        # Same ops as in_flight, with the run's meta (which résumés a score covers,
+        # which base a tailor copies from).
+        "in_flight_detail": in_flight_detail or [],
+    }

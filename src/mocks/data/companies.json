@@ -1,0 +1,2878 @@
+[
+  {
+    "id": "comp_01",
+    "name": "JPMorgan Chase",
+    "normalisedName": "jpmorgan-chase",
+    "domain": "jpmorgan.com",
+    "websiteUrl": "https://jpmorgan.com",
+    "linkedinUrl": "https://linkedin.com/company/jpmorgan-chase",
+    "employeeBand": "1000+",
+    "hasUsPresence": true,
+    "clientType": "DIRECT_CLIENT",
+    "atsProvider": "Lever",
+    "h1b": {
+      "sponsorsH1b": true,
+      "lcaCount": 450,
+      "lcaYear": 2025,
+      "medianLcaWage": 124525,
+      "topLcaTitles": [
+        "Software Developer",
+        "Systems Analyst",
+        "Data Engineer"
+      ],
+      "dataSource": "DOL_LCA",
+      "lastCheckedAt": "2026-08-16T06:17:52.974Z"
+    },
+    "verification": {
+      "id": "ver_comp_01",
+      "companyId": "comp_01",
+      "verdict": "VERIFIED",
+      "rules": [
+        {
+          "rule": "HAS_WEBSITE",
+          "label": "Has functioning website",
+          "passed": true,
+          "observed": null
+        },
+        {
+          "rule": "EMPLOYEE_COUNT",
+          "label": "10+ employees",
+          "passed": true,
+          "observed": null
+        },
+        {
+          "rule": "US_PRESENCE",
+          "label": "US office confirmed",
+          "passed": true,
+          "observed": null
+        }
+      ],
+      "firedRule": null,
+      "isManual": false,
+      "overrideReason": null,
+      "checkedAt": "2026-09-27T06:17:52.974Z",
+      "expiresAt": "2027-03-09T06:17:52.974Z"
+    }
+  },
+  {
+    "id": "comp_02",
+    "name": "Bank of America",
+    "normalisedName": "bank-of-america",
+    "domain": "bankofamerica.com",
+    "websiteUrl": "https://bankofamerica.com",
+    "linkedinUrl": "https://linkedin.com/company/bank-of-america",
+    "employeeBand": "1000+",
+    "hasUsPresence": true,
+    "clientType": "DIRECT_CLIENT",
+    "atsProvider": "Greenhouse",
+    "h1b": {
+      "sponsorsH1b": true,
+      "lcaCount": 380,
+      "lcaYear": 2025,
+      "medianLcaWage": 79428,
+      "topLcaTitles": [
+        "Software Developer",
+        "Systems Analyst"
+      ],
+      "dataSource": "DOL_LCA",
+      "lastCheckedAt": "2026-09-14T06:17:52.974Z"
+    },
+    "verification": {
+      "id": "ver_comp_02",
+      "companyId": "comp_02",
+      "verdict": "VERIFIED",
+      "rules": [
+        {
+          "rule": "HAS_WEBSITE",
+          "label": "Has functioning website",
+          "passed": true,
+          "observed": null
+        },
+        {
+          "rule": "EMPLOYEE_COUNT",
+          "label": "10+ employees",
+          "passed": true,
+          "observed": null
+        },
+        {
+          "rule": "US_PRESENCE",
+          "label": "US office confirmed",
+          "passed": true,
+          "observed": null
+        }
+      ],
+      "firedRule": null,
+      "isManual": false,
+      "overrideReason": null,
+      "checkedAt": "2026-09-11T06:17:52.974Z",
+      "expiresAt": "2027-03-01T06:17:52.974Z"
+    }
+  },
+  {
+    "id": "comp_03",
+    "name": "Wells Fargo",
+    "normalisedName": "wells-fargo",
+    "domain": "wellsfargo.com",
+    "websiteUrl": "https://wellsfargo.com",
+    "linkedinUrl": "https://linkedin.com/company/wells-fargo",
+    "employeeBand": "1000+",
+    "hasUsPresence": true,
+    "clientType": "DIRECT_CLIENT",
+    "atsProvider": "Workday",
+    "h1b": {
+      "sponsorsH1b": true,
+      "lcaCount": 320,
+      "lcaYear": 2025,
+      "medianLcaWage": 80918,
+      "topLcaTitles": [
+        "Software Developer",
+        "Systems Analyst",
+        "Data Engineer"
+      ],
+      "dataSource": "DOL_LCA",
+      "lastCheckedAt": "2026-10-01T06:17:52.974Z"
+    },
+    "verification": {
+      "id": "ver_comp_03",
+      "companyId": "comp_03",
+      "verdict": "VERIFIED",
+      "rules": [
+        {
+          "rule": "HAS_WEBSITE",
+          "label": "Has functioning website",
+          "passed": true,
+          "observed": null
+        },
+        {
+          "rule": "EMPLOYEE_COUNT",
+          "label": "10+ employees",
+          "passed": true,
+          "observed": null
+        },
+        {
+          "rule": "US_PRESENCE",
+          "label": "US office confirmed",
+          "passed": true,
+          "observed": null
+        }
+      ],
+      "firedRule": null,
+      "isManual": false,
+      "overrideReason": null,
+      "checkedAt": "2026-09-27T06:17:52.974Z",
+      "expiresAt": "2027-01-03T06:17:52.974Z"
+    }
+  },
+  {
+    "id": "comp_04",
+    "name": "Capital One",
+    "normalisedName": "capital-one",
+    "domain": "capitalone.com",
+    "websiteUrl": "https://capitalone.com",
+    "linkedinUrl": "https://linkedin.com/company/capital-one",
+    "employeeBand": "1000+",
+    "hasUsPresence": true,
+    "clientType": "DIRECT_CLIENT",
+    "atsProvider": "iCIMS",
+    "h1b": {
+      "sponsorsH1b": true,
+      "lcaCount": 290,
+      "lcaYear": 2025,
+      "medianLcaWage": 134755,
+      "topLcaTitles": [
+        "Software Developer",
+        "Systems Analyst"
+      ],
+      "dataSource": "DOL_LCA",
+      "lastCheckedAt": "2026-08-27T06:17:52.974Z"
+    },
+    "verification": {
+      "id": "ver_comp_04",
+      "companyId": "comp_04",
+      "verdict": "VERIFIED",
+      "rules": [
+        {
+          "rule": "HAS_WEBSITE",
+          "label": "Has functioning website",
+          "passed": true,
+          "observed": null
+        },
+        {
+          "rule": "EMPLOYEE_COUNT",
+          "label": "10+ employees",
+          "passed": true,
+          "observed": null
+        },
+        {
+          "rule": "US_PRESENCE",
+          "label": "US office confirmed",
+          "passed": true,
+          "observed": null
+        }
+      ],
+      "firedRule": null,
+      "isManual": false,
+      "overrideReason": null,
+      "checkedAt": "2026-09-26T06:17:52.974Z",
+      "expiresAt": "2027-02-26T06:17:52.974Z"
+    }
+  },
+  {
+    "id": "comp_05",
+    "name": "UnitedHealth Group",
+    "normalisedName": "unitedhealth-group",
+    "domain": "unitedhealthgroup.com",
+    "websiteUrl": "https://unitedhealthgroup.com",
+    "linkedinUrl": "https://linkedin.com/company/unitedhealth-group",
+    "employeeBand": "1000+",
+    "hasUsPresence": true,
+    "clientType": "DIRECT_CLIENT",
+    "atsProvider": "Greenhouse",
+    "h1b": {
+      "sponsorsH1b": true,
+      "lcaCount": 210,
+      "lcaYear": 2025,
+      "medianLcaWage": 128398,
+      "topLcaTitles": [
+        "Software Developer",
+        "Systems Analyst",
+        "Data Engineer"
+      ],
+      "dataSource": "DOL_LCA",
+      "lastCheckedAt": "2026-09-09T06:17:52.974Z"
+    },
+    "verification": {
+      "id": "ver_comp_05",
+      "companyId": "comp_05",
+      "verdict": "VERIFIED",
+      "rules": [
+        {
+          "rule": "HAS_WEBSITE",
+          "label": "Has functioning website",
+          "passed": true,
+          "observed": null
+        },
+        {
+          "rule": "EMPLOYEE_COUNT",
+          "label": "10+ employees",
+          "passed": true,
+          "observed": null
+        },
+        {
+          "rule": "US_PRESENCE",
+          "label": "US office confirmed",
+          "passed": true,
+          "observed": null
+        }
+      ],
+      "firedRule": null,
+      "isManual": false,
+      "overrideReason": null,
+      "checkedAt": "2026-09-27T06:17:52.974Z",
+      "expiresAt": "2026-12-16T06:17:52.974Z"
+    }
+  },
+  {
+    "id": "comp_06",
+    "name": "Anthem Inc",
+    "normalisedName": "anthem-inc",
+    "domain": "anthem.com",
+    "websiteUrl": "https://anthem.com",
+    "linkedinUrl": "https://linkedin.com/company/anthem-inc",
+    "employeeBand": "1000+",
+    "hasUsPresence": true,
+    "clientType": "DIRECT_CLIENT",
+    "atsProvider": "Greenhouse",
+    "h1b": {
+      "sponsorsH1b": true,
+      "lcaCount": 180,
+      "lcaYear": 2025,
+      "medianLcaWage": 91133,
+      "topLcaTitles": [
+        "Software Developer",
+        "Systems Analyst"
+      ],
+      "dataSource": "DOL_LCA",
+      "lastCheckedAt": "2026-08-14T06:17:52.975Z"
+    },
+    "verification": {
+      "id": "ver_comp_06",
+      "companyId": "comp_06",
+      "verdict": "VERIFIED",
+      "rules": [
+        {
+          "rule": "HAS_WEBSITE",
+          "label": "Has functioning website",
+          "passed": true,
+          "observed": null
+        },
+        {
+          "rule": "EMPLOYEE_COUNT",
+          "label": "10+ employees",
+          "passed": true,
+          "observed": null
+        },
+        {
+          "rule": "US_PRESENCE",
+          "label": "US office confirmed",
+          "passed": true,
+          "observed": null
+        }
+      ],
+      "firedRule": null,
+      "isManual": false,
+      "overrideReason": null,
+      "checkedAt": "2026-09-13T06:17:52.974Z",
+      "expiresAt": "2027-01-21T06:17:52.974Z"
+    }
+  },
+  {
+    "id": "comp_07",
+    "name": "Target Corporation",
+    "normalisedName": "target-corporation",
+    "domain": "target.com",
+    "websiteUrl": "https://target.com",
+    "linkedinUrl": "https://linkedin.com/company/target-corporation",
+    "employeeBand": "1000+",
+    "hasUsPresence": true,
+    "clientType": "DIRECT_CLIENT",
+    "atsProvider": "Greenhouse",
+    "h1b": {
+      "sponsorsH1b": true,
+      "lcaCount": 150,
+      "lcaYear": 2025,
+      "medianLcaWage": 82298,
+      "topLcaTitles": [
+        "Software Developer",
+        "Systems Analyst"
+      ],
+      "dataSource": "DOL_LCA",
+      "lastCheckedAt": "2026-08-19T06:17:52.975Z"
+    },
+    "verification": {
+      "id": "ver_comp_07",
+      "companyId": "comp_07",
+      "verdict": "VERIFIED",
+      "rules": [
+        {
+          "rule": "HAS_WEBSITE",
+          "label": "Has functioning website",
+          "passed": true,
+          "observed": null
+        },
+        {
+          "rule": "EMPLOYEE_COUNT",
+          "label": "10+ employees",
+          "passed": true,
+          "observed": null
+        },
+        {
+          "rule": "US_PRESENCE",
+          "label": "US office confirmed",
+          "passed": true,
+          "observed": null
+        }
+      ],
+      "firedRule": null,
+      "isManual": false,
+      "overrideReason": null,
+      "checkedAt": "2026-09-28T06:17:52.975Z",
+      "expiresAt": "2027-01-20T06:17:52.975Z"
+    }
+  },
+  {
+    "id": "comp_08",
+    "name": "Home Depot",
+    "normalisedName": "home-depot",
+    "domain": "homedepot.com",
+    "websiteUrl": "https://homedepot.com",
+    "linkedinUrl": "https://linkedin.com/company/home-depot",
+    "employeeBand": "1000+",
+    "hasUsPresence": true,
+    "clientType": "DIRECT_CLIENT",
+    "atsProvider": "Workday",
+    "h1b": {
+      "sponsorsH1b": true,
+      "lcaCount": 120,
+      "lcaYear": 2025,
+      "medianLcaWage": 130890,
+      "topLcaTitles": [
+        "Software Developer",
+        "Systems Analyst",
+        "Data Engineer"
+      ],
+      "dataSource": "DOL_LCA",
+      "lastCheckedAt": "2026-09-10T06:17:52.975Z"
+    },
+    "verification": {
+      "id": "ver_comp_08",
+      "companyId": "comp_08",
+      "verdict": "VERIFIED",
+      "rules": [
+        {
+          "rule": "HAS_WEBSITE",
+          "label": "Has functioning website",
+          "passed": true,
+          "observed": null
+        },
+        {
+          "rule": "EMPLOYEE_COUNT",
+          "label": "10+ employees",
+          "passed": true,
+          "observed": null
+        },
+        {
+          "rule": "US_PRESENCE",
+          "label": "US office confirmed",
+          "passed": true,
+          "observed": null
+        }
+      ],
+      "firedRule": null,
+      "isManual": false,
+      "overrideReason": null,
+      "checkedAt": "2026-09-13T06:17:52.975Z",
+      "expiresAt": "2027-03-29T06:17:52.975Z"
+    }
+  },
+  {
+    "id": "comp_09",
+    "name": "Verizon Communications",
+    "normalisedName": "verizon-communications",
+    "domain": "verizon.com",
+    "websiteUrl": "https://verizon.com",
+    "linkedinUrl": "https://linkedin.com/company/verizon-communications",
+    "employeeBand": "1000+",
+    "hasUsPresence": true,
+    "clientType": "DIRECT_CLIENT",
+    "atsProvider": "Greenhouse",
+    "h1b": {
+      "sponsorsH1b": true,
+      "lcaCount": 200,
+      "lcaYear": 2025,
+      "medianLcaWage": 96988,
+      "topLcaTitles": [
+        "Software Developer",
+        "Systems Analyst",
+        "Data Engineer"
+      ],
+      "dataSource": "DOL_LCA",
+      "lastCheckedAt": "2026-09-03T06:17:52.975Z"
+    },
+    "verification": {
+      "id": "ver_comp_09",
+      "companyId": "comp_09",
+      "verdict": "VERIFIED",
+      "rules": [
+        {
+          "rule": "HAS_WEBSITE",
+          "label": "Has functioning website",
+          "passed": true,
+          "observed": null
+        },
+        {
+          "rule": "EMPLOYEE_COUNT",
+          "label": "10+ employees",
+          "passed": true,
+          "observed": null
+        },
+        {
+          "rule": "US_PRESENCE",
+          "label": "US office confirmed",
+          "passed": true,
+          "observed": null
+        }
+      ],
+      "firedRule": null,
+      "isManual": false,
+      "overrideReason": null,
+      "checkedAt": "2026-09-11T06:17:52.975Z",
+      "expiresAt": "2027-01-10T06:17:52.975Z"
+    }
+  },
+  {
+    "id": "comp_10",
+    "name": "AT&T Inc",
+    "normalisedName": "at-t-inc",
+    "domain": "att.com",
+    "websiteUrl": "https://att.com",
+    "linkedinUrl": "https://linkedin.com/company/at-t-inc",
+    "employeeBand": "1000+",
+    "hasUsPresence": true,
+    "clientType": "DIRECT_CLIENT",
+    "atsProvider": "Workday",
+    "h1b": {
+      "sponsorsH1b": true,
+      "lcaCount": 170,
+      "lcaYear": 2025,
+      "medianLcaWage": 123816,
+      "topLcaTitles": [
+        "Software Developer"
+      ],
+      "dataSource": "DOL_LCA",
+      "lastCheckedAt": "2026-08-17T06:17:52.975Z"
+    },
+    "verification": {
+      "id": "ver_comp_10",
+      "companyId": "comp_10",
+      "verdict": "VERIFIED",
+      "rules": [
+        {
+          "rule": "HAS_WEBSITE",
+          "label": "Has functioning website",
+          "passed": true,
+          "observed": null
+        },
+        {
+          "rule": "EMPLOYEE_COUNT",
+          "label": "10+ employees",
+          "passed": true,
+          "observed": null
+        },
+        {
+          "rule": "US_PRESENCE",
+          "label": "US office confirmed",
+          "passed": true,
+          "observed": null
+        }
+      ],
+      "firedRule": null,
+      "isManual": false,
+      "overrideReason": null,
+      "checkedAt": "2026-09-23T06:17:52.975Z",
+      "expiresAt": "2026-12-21T06:17:52.975Z"
+    }
+  },
+  {
+    "id": "comp_11",
+    "name": "Fidelity Investments",
+    "normalisedName": "fidelity-investments",
+    "domain": "fidelity.com",
+    "websiteUrl": "https://fidelity.com",
+    "linkedinUrl": "https://linkedin.com/company/fidelity-investments",
+    "employeeBand": "1000+",
+    "hasUsPresence": true,
+    "clientType": "DIRECT_CLIENT",
+    "atsProvider": null,
+    "h1b": {
+      "sponsorsH1b": true,
+      "lcaCount": 260,
+      "lcaYear": 2025,
+      "medianLcaWage": 98791,
+      "topLcaTitles": [
+        "Software Developer",
+        "Systems Analyst",
+        "Data Engineer"
+      ],
+      "dataSource": "DOL_LCA",
+      "lastCheckedAt": "2026-08-27T06:17:52.975Z"
+    },
+    "verification": {
+      "id": "ver_comp_11",
+      "companyId": "comp_11",
+      "verdict": "VERIFIED",
+      "rules": [
+        {
+          "rule": "HAS_WEBSITE",
+          "label": "Has functioning website",
+          "passed": true,
+          "observed": null
+        },
+        {
+          "rule": "EMPLOYEE_COUNT",
+          "label": "10+ employees",
+          "passed": true,
+          "observed": null
+        },
+        {
+          "rule": "US_PRESENCE",
+          "label": "US office confirmed",
+          "passed": true,
+          "observed": null
+        }
+      ],
+      "firedRule": null,
+      "isManual": false,
+      "overrideReason": null,
+      "checkedAt": "2026-09-06T06:17:52.975Z",
+      "expiresAt": "2027-02-25T06:17:52.975Z"
+    }
+  },
+  {
+    "id": "comp_12",
+    "name": "State Farm Insurance",
+    "normalisedName": "state-farm-insurance",
+    "domain": "statefarm.com",
+    "websiteUrl": "https://statefarm.com",
+    "linkedinUrl": "https://linkedin.com/company/state-farm-insurance",
+    "employeeBand": "1000+",
+    "hasUsPresence": true,
+    "clientType": "DIRECT_CLIENT",
+    "atsProvider": "iCIMS",
+    "h1b": {
+      "sponsorsH1b": true,
+      "lcaCount": 90,
+      "lcaYear": 2025,
+      "medianLcaWage": 86720,
+      "topLcaTitles": [
+        "Software Developer"
+      ],
+      "dataSource": "DOL_LCA",
+      "lastCheckedAt": "2026-09-22T06:17:52.975Z"
+    },
+    "verification": {
+      "id": "ver_comp_12",
+      "companyId": "comp_12",
+      "verdict": "VERIFIED",
+      "rules": [
+        {
+          "rule": "HAS_WEBSITE",
+          "label": "Has functioning website",
+          "passed": true,
+          "observed": null
+        },
+        {
+          "rule": "EMPLOYEE_COUNT",
+          "label": "10+ employees",
+          "passed": true,
+          "observed": null
+        },
+        {
+          "rule": "US_PRESENCE",
+          "label": "US office confirmed",
+          "passed": true,
+          "observed": null
+        }
+      ],
+      "firedRule": null,
+      "isManual": false,
+      "overrideReason": null,
+      "checkedAt": "2026-09-29T06:17:52.975Z",
+      "expiresAt": "2027-03-21T06:17:52.975Z"
+    }
+  },
+  {
+    "id": "comp_13",
+    "name": "Cigna Healthcare",
+    "normalisedName": "cigna-healthcare",
+    "domain": "cigna.com",
+    "websiteUrl": "https://cigna.com",
+    "linkedinUrl": "https://linkedin.com/company/cigna-healthcare",
+    "employeeBand": "1000+",
+    "hasUsPresence": true,
+    "clientType": "DIRECT_CLIENT",
+    "atsProvider": "Taleo",
+    "h1b": {
+      "sponsorsH1b": true,
+      "lcaCount": 110,
+      "lcaYear": 2025,
+      "medianLcaWage": 92733,
+      "topLcaTitles": [
+        "Software Developer"
+      ],
+      "dataSource": "DOL_LCA",
+      "lastCheckedAt": "2026-09-02T06:17:52.975Z"
+    },
+    "verification": {
+      "id": "ver_comp_13",
+      "companyId": "comp_13",
+      "verdict": "VERIFIED",
+      "rules": [
+        {
+          "rule": "HAS_WEBSITE",
+          "label": "Has functioning website",
+          "passed": true,
+          "observed": null
+        },
+        {
+          "rule": "EMPLOYEE_COUNT",
+          "label": "10+ employees",
+          "passed": true,
+          "observed": null
+        },
+        {
+          "rule": "US_PRESENCE",
+          "label": "US office confirmed",
+          "passed": true,
+          "observed": null
+        }
+      ],
+      "firedRule": null,
+      "isManual": false,
+      "overrideReason": null,
+      "checkedAt": "2026-09-12T06:17:52.975Z",
+      "expiresAt": "2027-01-25T06:17:52.975Z"
+    }
+  },
+  {
+    "id": "comp_14",
+    "name": "FedEx Services",
+    "normalisedName": "fedex-services",
+    "domain": "fedex.com",
+    "websiteUrl": "https://fedex.com",
+    "linkedinUrl": "https://linkedin.com/company/fedex-services",
+    "employeeBand": "1000+",
+    "hasUsPresence": true,
+    "clientType": "DIRECT_CLIENT",
+    "atsProvider": "Greenhouse",
+    "h1b": {
+      "sponsorsH1b": true,
+      "lcaCount": 85,
+      "lcaYear": 2025,
+      "medianLcaWage": 93806,
+      "topLcaTitles": [
+        "Software Developer",
+        "Systems Analyst",
+        "Data Engineer"
+      ],
+      "dataSource": "DOL_LCA",
+      "lastCheckedAt": "2026-09-13T06:17:52.975Z"
+    },
+    "verification": {
+      "id": "ver_comp_14",
+      "companyId": "comp_14",
+      "verdict": "VERIFIED",
+      "rules": [
+        {
+          "rule": "HAS_WEBSITE",
+          "label": "Has functioning website",
+          "passed": true,
+          "observed": null
+        },
+        {
+          "rule": "EMPLOYEE_COUNT",
+          "label": "10+ employees",
+          "passed": true,
+          "observed": null
+        },
+        {
+          "rule": "US_PRESENCE",
+          "label": "US office confirmed",
+          "passed": true,
+          "observed": null
+        }
+      ],
+      "firedRule": null,
+      "isManual": false,
+      "overrideReason": null,
+      "checkedAt": "2026-09-17T06:17:52.975Z",
+      "expiresAt": "2027-02-06T06:17:52.975Z"
+    }
+  },
+  {
+    "id": "comp_15",
+    "name": "CVS Health",
+    "normalisedName": "cvs-health",
+    "domain": "cvshealth.com",
+    "websiteUrl": "https://cvshealth.com",
+    "linkedinUrl": "https://linkedin.com/company/cvs-health",
+    "employeeBand": "1000+",
+    "hasUsPresence": true,
+    "clientType": "DIRECT_CLIENT",
+    "atsProvider": "Lever",
+    "h1b": {
+      "sponsorsH1b": true,
+      "lcaCount": 130,
+      "lcaYear": 2025,
+      "medianLcaWage": 108131,
+      "topLcaTitles": [
+        "Software Developer",
+        "Systems Analyst"
+      ],
+      "dataSource": "DOL_LCA",
+      "lastCheckedAt": "2026-08-20T06:17:52.975Z"
+    },
+    "verification": {
+      "id": "ver_comp_15",
+      "companyId": "comp_15",
+      "verdict": "VERIFIED",
+      "rules": [
+        {
+          "rule": "HAS_WEBSITE",
+          "label": "Has functioning website",
+          "passed": true,
+          "observed": null
+        },
+        {
+          "rule": "EMPLOYEE_COUNT",
+          "label": "10+ employees",
+          "passed": true,
+          "observed": null
+        },
+        {
+          "rule": "US_PRESENCE",
+          "label": "US office confirmed",
+          "passed": true,
+          "observed": null
+        }
+      ],
+      "firedRule": null,
+      "isManual": false,
+      "overrideReason": null,
+      "checkedAt": "2026-09-30T06:17:52.975Z",
+      "expiresAt": "2027-02-23T06:17:52.975Z"
+    }
+  },
+  {
+    "id": "comp_16",
+    "name": "American Express",
+    "normalisedName": "american-express",
+    "domain": "americanexpress.com",
+    "websiteUrl": "https://americanexpress.com",
+    "linkedinUrl": "https://linkedin.com/company/american-express",
+    "employeeBand": "1000+",
+    "hasUsPresence": true,
+    "clientType": "DIRECT_CLIENT",
+    "atsProvider": "Taleo",
+    "h1b": {
+      "sponsorsH1b": true,
+      "lcaCount": 190,
+      "lcaYear": 2025,
+      "medianLcaWage": 101173,
+      "topLcaTitles": [
+        "Software Developer",
+        "Systems Analyst",
+        "Data Engineer"
+      ],
+      "dataSource": "DOL_LCA",
+      "lastCheckedAt": "2026-09-24T06:17:52.975Z"
+    },
+    "verification": {
+      "id": "ver_comp_16",
+      "companyId": "comp_16",
+      "verdict": "VERIFIED",
+      "rules": [
+        {
+          "rule": "HAS_WEBSITE",
+          "label": "Has functioning website",
+          "passed": true,
+          "observed": null
+        },
+        {
+          "rule": "EMPLOYEE_COUNT",
+          "label": "10+ employees",
+          "passed": true,
+          "observed": null
+        },
+        {
+          "rule": "US_PRESENCE",
+          "label": "US office confirmed",
+          "passed": true,
+          "observed": null
+        }
+      ],
+      "firedRule": null,
+      "isManual": false,
+      "overrideReason": null,
+      "checkedAt": "2026-09-17T06:17:52.975Z",
+      "expiresAt": "2026-12-18T06:17:52.975Z"
+    }
+  },
+  {
+    "id": "comp_17",
+    "name": "Progressive Insurance",
+    "normalisedName": "progressive-insurance",
+    "domain": "progressive.com",
+    "websiteUrl": "https://progressive.com",
+    "linkedinUrl": "https://linkedin.com/company/progressive-insurance",
+    "employeeBand": "1000+",
+    "hasUsPresence": true,
+    "clientType": "DIRECT_CLIENT",
+    "atsProvider": null,
+    "h1b": {
+      "sponsorsH1b": true,
+      "lcaCount": 70,
+      "lcaYear": 2025,
+      "medianLcaWage": 76816,
+      "topLcaTitles": [
+        "Software Developer",
+        "Systems Analyst"
+      ],
+      "dataSource": "DOL_LCA",
+      "lastCheckedAt": "2026-09-13T06:17:52.975Z"
+    },
+    "verification": {
+      "id": "ver_comp_17",
+      "companyId": "comp_17",
+      "verdict": "VERIFIED",
+      "rules": [
+        {
+          "rule": "HAS_WEBSITE",
+          "label": "Has functioning website",
+          "passed": true,
+          "observed": null
+        },
+        {
+          "rule": "EMPLOYEE_COUNT",
+          "label": "10+ employees",
+          "passed": true,
+          "observed": null
+        },
+        {
+          "rule": "US_PRESENCE",
+          "label": "US office confirmed",
+          "passed": true,
+          "observed": null
+        }
+      ],
+      "firedRule": null,
+      "isManual": false,
+      "overrideReason": null,
+      "checkedAt": "2026-09-06T06:17:52.975Z",
+      "expiresAt": "2027-01-24T06:17:52.975Z"
+    }
+  },
+  {
+    "id": "comp_18",
+    "name": "Fannie Mae",
+    "normalisedName": "fannie-mae",
+    "domain": "fanniemae.com",
+    "websiteUrl": "https://fanniemae.com",
+    "linkedinUrl": "https://linkedin.com/company/fannie-mae",
+    "employeeBand": "1000+",
+    "hasUsPresence": true,
+    "clientType": "DIRECT_CLIENT",
+    "atsProvider": "Greenhouse",
+    "h1b": {
+      "sponsorsH1b": true,
+      "lcaCount": 95,
+      "lcaYear": 2025,
+      "medianLcaWage": 110811,
+      "topLcaTitles": [
+        "Software Developer",
+        "Systems Analyst",
+        "Data Engineer"
+      ],
+      "dataSource": "DOL_LCA",
+      "lastCheckedAt": "2026-09-22T06:17:52.975Z"
+    },
+    "verification": {
+      "id": "ver_comp_18",
+      "companyId": "comp_18",
+      "verdict": "VERIFIED",
+      "rules": [
+        {
+          "rule": "HAS_WEBSITE",
+          "label": "Has functioning website",
+          "passed": true,
+          "observed": null
+        },
+        {
+          "rule": "EMPLOYEE_COUNT",
+          "label": "10+ employees",
+          "passed": true,
+          "observed": null
+        },
+        {
+          "rule": "US_PRESENCE",
+          "label": "US office confirmed",
+          "passed": true,
+          "observed": null
+        }
+      ],
+      "firedRule": null,
+      "isManual": false,
+      "overrideReason": null,
+      "checkedAt": "2026-09-19T06:17:52.975Z",
+      "expiresAt": "2027-02-28T06:17:52.975Z"
+    }
+  },
+  {
+    "id": "comp_19",
+    "name": "Lockton Companies",
+    "normalisedName": "lockton-companies",
+    "domain": "lockton.com",
+    "websiteUrl": "https://lockton.com",
+    "linkedinUrl": "https://linkedin.com/company/lockton-companies",
+    "employeeBand": "501-1000",
+    "hasUsPresence": true,
+    "clientType": "DIRECT_CLIENT",
+    "atsProvider": "Lever",
+    "h1b": {
+      "sponsorsH1b": false,
+      "lcaCount": 0,
+      "lcaYear": null,
+      "medianLcaWage": null,
+      "topLcaTitles": [],
+      "dataSource": "DOL_LCA",
+      "lastCheckedAt": "2026-08-31T06:17:52.975Z"
+    },
+    "verification": {
+      "id": "ver_comp_19",
+      "companyId": "comp_19",
+      "verdict": "CAUTION",
+      "rules": [
+        {
+          "rule": "LOW_GLASSDOOR_RATING",
+          "label": "Glassdoor rating below 3.0",
+          "passed": false,
+          "observed": "Flagged during automated check"
+        }
+      ],
+      "firedRule": "LOW_GLASSDOOR_RATING",
+      "isManual": false,
+      "overrideReason": null,
+      "checkedAt": "2026-09-14T06:17:52.975Z",
+      "expiresAt": "2026-11-10T06:17:52.975Z"
+    }
+  },
+  {
+    "id": "comp_20",
+    "name": "QuietRiver Analytics",
+    "normalisedName": "quietriver-analytics",
+    "domain": "quietriver.io",
+    "websiteUrl": "https://quietriver.io",
+    "linkedinUrl": "https://linkedin.com/company/quietriver-analytics",
+    "employeeBand": "51-200",
+    "hasUsPresence": true,
+    "clientType": "DIRECT_CLIENT",
+    "atsProvider": "Lever",
+    "h1b": {
+      "sponsorsH1b": false,
+      "lcaCount": 0,
+      "lcaYear": null,
+      "medianLcaWage": null,
+      "topLcaTitles": [],
+      "dataSource": "DOL_LCA",
+      "lastCheckedAt": "2026-09-03T06:17:52.975Z"
+    },
+    "verification": {
+      "id": "ver_comp_20",
+      "companyId": "comp_20",
+      "verdict": "CAUTION",
+      "rules": [
+        {
+          "rule": "COMPANY_AGE_UNDER_2Y",
+          "label": "Company less than 2 years old",
+          "passed": false,
+          "observed": "Flagged during automated check"
+        }
+      ],
+      "firedRule": "COMPANY_AGE_UNDER_2Y",
+      "isManual": false,
+      "overrideReason": null,
+      "checkedAt": "2026-09-02T06:17:52.975Z",
+      "expiresAt": "2026-12-20T06:17:52.975Z"
+    }
+  },
+  {
+    "id": "comp_21",
+    "name": "Infosys Limited",
+    "normalisedName": "infosys-limited",
+    "domain": "infosys.com",
+    "websiteUrl": "https://infosys.com",
+    "linkedinUrl": "https://linkedin.com/company/infosys-limited",
+    "employeeBand": "1000+",
+    "hasUsPresence": true,
+    "clientType": "PRIME_VENDOR",
+    "atsProvider": "iCIMS",
+    "h1b": {
+      "sponsorsH1b": true,
+      "lcaCount": 400,
+      "lcaYear": 2025,
+      "medianLcaWage": 84156,
+      "topLcaTitles": [
+        "Software Developer"
+      ],
+      "dataSource": "DOL_LCA",
+      "lastCheckedAt": "2026-09-14T06:17:52.975Z"
+    },
+    "verification": {
+      "id": "ver_comp_21",
+      "companyId": "comp_21",
+      "verdict": "VERIFIED",
+      "rules": [
+        {
+          "rule": "HAS_WEBSITE",
+          "label": "Has functioning website",
+          "passed": true,
+          "observed": null
+        },
+        {
+          "rule": "EMPLOYEE_COUNT",
+          "label": "10+ employees",
+          "passed": true,
+          "observed": null
+        },
+        {
+          "rule": "US_PRESENCE",
+          "label": "US office confirmed",
+          "passed": true,
+          "observed": null
+        }
+      ],
+      "firedRule": null,
+      "isManual": false,
+      "overrideReason": null,
+      "checkedAt": "2026-09-08T06:17:52.975Z",
+      "expiresAt": "2026-12-08T06:17:52.975Z"
+    }
+  },
+  {
+    "id": "comp_22",
+    "name": "Wipro Limited",
+    "normalisedName": "wipro-limited",
+    "domain": "wipro.com",
+    "websiteUrl": "https://wipro.com",
+    "linkedinUrl": "https://linkedin.com/company/wipro-limited",
+    "employeeBand": "1000+",
+    "hasUsPresence": true,
+    "clientType": "PRIME_VENDOR",
+    "atsProvider": "Greenhouse",
+    "h1b": {
+      "sponsorsH1b": true,
+      "lcaCount": 350,
+      "lcaYear": 2025,
+      "medianLcaWage": 117229,
+      "topLcaTitles": [
+        "Software Developer"
+      ],
+      "dataSource": "DOL_LCA",
+      "lastCheckedAt": "2026-08-24T06:17:52.975Z"
+    },
+    "verification": {
+      "id": "ver_comp_22",
+      "companyId": "comp_22",
+      "verdict": "VERIFIED",
+      "rules": [
+        {
+          "rule": "HAS_WEBSITE",
+          "label": "Has functioning website",
+          "passed": true,
+          "observed": null
+        },
+        {
+          "rule": "EMPLOYEE_COUNT",
+          "label": "10+ employees",
+          "passed": true,
+          "observed": null
+        },
+        {
+          "rule": "US_PRESENCE",
+          "label": "US office confirmed",
+          "passed": true,
+          "observed": null
+        }
+      ],
+      "firedRule": null,
+      "isManual": false,
+      "overrideReason": null,
+      "checkedAt": "2026-09-29T06:17:52.975Z",
+      "expiresAt": "2027-02-03T06:17:52.975Z"
+    }
+  },
+  {
+    "id": "comp_23",
+    "name": "TCS America",
+    "normalisedName": "tcs-america",
+    "domain": "tcs.com",
+    "websiteUrl": "https://tcs.com",
+    "linkedinUrl": "https://linkedin.com/company/tcs-america",
+    "employeeBand": "1000+",
+    "hasUsPresence": true,
+    "clientType": "PRIME_VENDOR",
+    "atsProvider": "Taleo",
+    "h1b": {
+      "sponsorsH1b": true,
+      "lcaCount": 420,
+      "lcaYear": 2025,
+      "medianLcaWage": 128943,
+      "topLcaTitles": [
+        "Software Developer",
+        "Systems Analyst"
+      ],
+      "dataSource": "DOL_LCA",
+      "lastCheckedAt": "2026-09-01T06:17:52.975Z"
+    },
+    "verification": {
+      "id": "ver_comp_23",
+      "companyId": "comp_23",
+      "verdict": "VERIFIED",
+      "rules": [
+        {
+          "rule": "HAS_WEBSITE",
+          "label": "Has functioning website",
+          "passed": true,
+          "observed": null
+        },
+        {
+          "rule": "EMPLOYEE_COUNT",
+          "label": "10+ employees",
+          "passed": true,
+          "observed": null
+        },
+        {
+          "rule": "US_PRESENCE",
+          "label": "US office confirmed",
+          "passed": true,
+          "observed": null
+        }
+      ],
+      "firedRule": null,
+      "isManual": false,
+      "overrideReason": null,
+      "checkedAt": "2026-09-22T06:17:52.975Z",
+      "expiresAt": "2027-02-01T06:17:52.975Z"
+    }
+  },
+  {
+    "id": "comp_24",
+    "name": "Cognizant Technology",
+    "normalisedName": "cognizant-technology",
+    "domain": "cognizant.com",
+    "websiteUrl": "https://cognizant.com",
+    "linkedinUrl": "https://linkedin.com/company/cognizant-technology",
+    "employeeBand": "1000+",
+    "hasUsPresence": true,
+    "clientType": "PRIME_VENDOR",
+    "atsProvider": "Taleo",
+    "h1b": {
+      "sponsorsH1b": true,
+      "lcaCount": 380,
+      "lcaYear": 2025,
+      "medianLcaWage": 99144,
+      "topLcaTitles": [
+        "Software Developer"
+      ],
+      "dataSource": "DOL_LCA",
+      "lastCheckedAt": "2026-09-18T06:17:52.975Z"
+    },
+    "verification": {
+      "id": "ver_comp_24",
+      "companyId": "comp_24",
+      "verdict": "VERIFIED",
+      "rules": [
+        {
+          "rule": "HAS_WEBSITE",
+          "label": "Has functioning website",
+          "passed": true,
+          "observed": null
+        },
+        {
+          "rule": "EMPLOYEE_COUNT",
+          "label": "10+ employees",
+          "passed": true,
+          "observed": null
+        },
+        {
+          "rule": "US_PRESENCE",
+          "label": "US office confirmed",
+          "passed": true,
+          "observed": null
+        }
+      ],
+      "firedRule": null,
+      "isManual": false,
+      "overrideReason": null,
+      "checkedAt": "2026-09-09T06:17:52.975Z",
+      "expiresAt": "2027-01-21T06:17:52.975Z"
+    }
+  },
+  {
+    "id": "comp_25",
+    "name": "HCL Technologies",
+    "normalisedName": "hcl-technologies",
+    "domain": "hcltech.com",
+    "websiteUrl": "https://hcltech.com",
+    "linkedinUrl": "https://linkedin.com/company/hcl-technologies",
+    "employeeBand": "1000+",
+    "hasUsPresence": true,
+    "clientType": "PRIME_VENDOR",
+    "atsProvider": null,
+    "h1b": {
+      "sponsorsH1b": true,
+      "lcaCount": 310,
+      "lcaYear": 2025,
+      "medianLcaWage": 116993,
+      "topLcaTitles": [
+        "Software Developer",
+        "Systems Analyst",
+        "Data Engineer"
+      ],
+      "dataSource": "DOL_LCA",
+      "lastCheckedAt": "2026-09-01T06:17:52.975Z"
+    },
+    "verification": {
+      "id": "ver_comp_25",
+      "companyId": "comp_25",
+      "verdict": "VERIFIED",
+      "rules": [
+        {
+          "rule": "HAS_WEBSITE",
+          "label": "Has functioning website",
+          "passed": true,
+          "observed": null
+        },
+        {
+          "rule": "EMPLOYEE_COUNT",
+          "label": "10+ employees",
+          "passed": true,
+          "observed": null
+        },
+        {
+          "rule": "US_PRESENCE",
+          "label": "US office confirmed",
+          "passed": true,
+          "observed": null
+        }
+      ],
+      "firedRule": null,
+      "isManual": false,
+      "overrideReason": null,
+      "checkedAt": "2026-09-09T06:17:52.975Z",
+      "expiresAt": "2026-12-15T06:17:52.975Z"
+    }
+  },
+  {
+    "id": "comp_26",
+    "name": "Tech Mahindra",
+    "normalisedName": "tech-mahindra",
+    "domain": "techmahindra.com",
+    "websiteUrl": "https://techmahindra.com",
+    "linkedinUrl": "https://linkedin.com/company/tech-mahindra",
+    "employeeBand": "1000+",
+    "hasUsPresence": true,
+    "clientType": "PRIME_VENDOR",
+    "atsProvider": "iCIMS",
+    "h1b": {
+      "sponsorsH1b": true,
+      "lcaCount": 250,
+      "lcaYear": 2025,
+      "medianLcaWage": 92241,
+      "topLcaTitles": [
+        "Software Developer"
+      ],
+      "dataSource": "DOL_LCA",
+      "lastCheckedAt": "2026-09-14T06:17:52.975Z"
+    },
+    "verification": {
+      "id": "ver_comp_26",
+      "companyId": "comp_26",
+      "verdict": "VERIFIED",
+      "rules": [
+        {
+          "rule": "HAS_WEBSITE",
+          "label": "Has functioning website",
+          "passed": true,
+          "observed": null
+        },
+        {
+          "rule": "EMPLOYEE_COUNT",
+          "label": "10+ employees",
+          "passed": true,
+          "observed": null
+        },
+        {
+          "rule": "US_PRESENCE",
+          "label": "US office confirmed",
+          "passed": true,
+          "observed": null
+        }
+      ],
+      "firedRule": null,
+      "isManual": false,
+      "overrideReason": null,
+      "checkedAt": "2026-09-29T06:17:52.975Z",
+      "expiresAt": "2027-03-08T06:17:52.975Z"
+    }
+  },
+  {
+    "id": "comp_27",
+    "name": "Mphasis Limited",
+    "normalisedName": "mphasis-limited",
+    "domain": "mphasis.com",
+    "websiteUrl": "https://mphasis.com",
+    "linkedinUrl": "https://linkedin.com/company/mphasis-limited",
+    "employeeBand": "1000+",
+    "hasUsPresence": true,
+    "clientType": "PRIME_VENDOR",
+    "atsProvider": "Lever",
+    "h1b": {
+      "sponsorsH1b": true,
+      "lcaCount": 140,
+      "lcaYear": 2025,
+      "medianLcaWage": 129729,
+      "topLcaTitles": [
+        "Software Developer",
+        "Systems Analyst"
+      ],
+      "dataSource": "DOL_LCA",
+      "lastCheckedAt": "2026-08-17T06:17:52.975Z"
+    },
+    "verification": {
+      "id": "ver_comp_27",
+      "companyId": "comp_27",
+      "verdict": "VERIFIED",
+      "rules": [
+        {
+          "rule": "HAS_WEBSITE",
+          "label": "Has functioning website",
+          "passed": true,
+          "observed": null
+        },
+        {
+          "rule": "EMPLOYEE_COUNT",
+          "label": "10+ employees",
+          "passed": true,
+          "observed": null
+        },
+        {
+          "rule": "US_PRESENCE",
+          "label": "US office confirmed",
+          "passed": true,
+          "observed": null
+        }
+      ],
+      "firedRule": null,
+      "isManual": false,
+      "overrideReason": null,
+      "checkedAt": "2026-09-19T06:17:52.975Z",
+      "expiresAt": "2027-03-18T06:17:52.975Z"
+    }
+  },
+  {
+    "id": "comp_28",
+    "name": "LTIMindtree",
+    "normalisedName": "ltimindtree",
+    "domain": "ltimindtree.com",
+    "websiteUrl": "https://ltimindtree.com",
+    "linkedinUrl": "https://linkedin.com/company/ltimindtree",
+    "employeeBand": "1000+",
+    "hasUsPresence": true,
+    "clientType": "PRIME_VENDOR",
+    "atsProvider": "Workday",
+    "h1b": {
+      "sponsorsH1b": true,
+      "lcaCount": 200,
+      "lcaYear": 2025,
+      "medianLcaWage": 106610,
+      "topLcaTitles": [
+        "Software Developer",
+        "Systems Analyst",
+        "Data Engineer"
+      ],
+      "dataSource": "DOL_LCA",
+      "lastCheckedAt": "2026-09-13T06:17:52.975Z"
+    },
+    "verification": {
+      "id": "ver_comp_28",
+      "companyId": "comp_28",
+      "verdict": "VERIFIED",
+      "rules": [
+        {
+          "rule": "HAS_WEBSITE",
+          "label": "Has functioning website",
+          "passed": true,
+          "observed": null
+        },
+        {
+          "rule": "EMPLOYEE_COUNT",
+          "label": "10+ employees",
+          "passed": true,
+          "observed": null
+        },
+        {
+          "rule": "US_PRESENCE",
+          "label": "US office confirmed",
+          "passed": true,
+          "observed": null
+        }
+      ],
+      "firedRule": null,
+      "isManual": false,
+      "overrideReason": null,
+      "checkedAt": "2026-09-24T06:17:52.975Z",
+      "expiresAt": "2026-12-31T06:17:52.975Z"
+    }
+  },
+  {
+    "id": "comp_29",
+    "name": "Syntel Inc",
+    "normalisedName": "syntel-inc",
+    "domain": "syntel.com",
+    "websiteUrl": "https://syntel.com",
+    "linkedinUrl": "https://linkedin.com/company/syntel-inc",
+    "employeeBand": "1000+",
+    "hasUsPresence": true,
+    "clientType": "PRIME_VENDOR",
+    "atsProvider": "Taleo",
+    "h1b": {
+      "sponsorsH1b": true,
+      "lcaCount": 160,
+      "lcaYear": 2025,
+      "medianLcaWage": 93365,
+      "topLcaTitles": [
+        "Software Developer"
+      ],
+      "dataSource": "DOL_LCA",
+      "lastCheckedAt": "2026-10-01T06:17:52.975Z"
+    },
+    "verification": {
+      "id": "ver_comp_29",
+      "companyId": "comp_29",
+      "verdict": "VERIFIED",
+      "rules": [
+        {
+          "rule": "HAS_WEBSITE",
+          "label": "Has functioning website",
+          "passed": true,
+          "observed": null
+        },
+        {
+          "rule": "EMPLOYEE_COUNT",
+          "label": "10+ employees",
+          "passed": true,
+          "observed": null
+        },
+        {
+          "rule": "US_PRESENCE",
+          "label": "US office confirmed",
+          "passed": true,
+          "observed": null
+        }
+      ],
+      "firedRule": null,
+      "isManual": false,
+      "overrideReason": null,
+      "checkedAt": "2026-09-21T06:17:52.975Z",
+      "expiresAt": "2027-02-02T06:17:52.975Z"
+    }
+  },
+  {
+    "id": "comp_30",
+    "name": "Hexaware Technologies",
+    "normalisedName": "hexaware-technologies",
+    "domain": "hexaware.com",
+    "websiteUrl": "https://hexaware.com",
+    "linkedinUrl": "https://linkedin.com/company/hexaware-technologies",
+    "employeeBand": "1000+",
+    "hasUsPresence": true,
+    "clientType": "PRIME_VENDOR",
+    "atsProvider": "iCIMS",
+    "h1b": {
+      "sponsorsH1b": true,
+      "lcaCount": 110,
+      "lcaYear": 2025,
+      "medianLcaWage": 128874,
+      "topLcaTitles": [
+        "Software Developer"
+      ],
+      "dataSource": "DOL_LCA",
+      "lastCheckedAt": "2026-09-20T06:17:52.975Z"
+    },
+    "verification": {
+      "id": "ver_comp_30",
+      "companyId": "comp_30",
+      "verdict": "VERIFIED",
+      "rules": [
+        {
+          "rule": "HAS_WEBSITE",
+          "label": "Has functioning website",
+          "passed": true,
+          "observed": null
+        },
+        {
+          "rule": "EMPLOYEE_COUNT",
+          "label": "10+ employees",
+          "passed": true,
+          "observed": null
+        },
+        {
+          "rule": "US_PRESENCE",
+          "label": "US office confirmed",
+          "passed": true,
+          "observed": null
+        }
+      ],
+      "firedRule": null,
+      "isManual": false,
+      "overrideReason": null,
+      "checkedAt": "2026-09-21T06:17:52.975Z",
+      "expiresAt": "2026-12-09T06:17:52.975Z"
+    }
+  },
+  {
+    "id": "comp_31",
+    "name": "UST Global",
+    "normalisedName": "ust-global",
+    "domain": "ust.com",
+    "websiteUrl": "https://ust.com",
+    "linkedinUrl": "https://linkedin.com/company/ust-global",
+    "employeeBand": "1000+",
+    "hasUsPresence": true,
+    "clientType": "PRIME_VENDOR",
+    "atsProvider": "Greenhouse",
+    "h1b": {
+      "sponsorsH1b": true,
+      "lcaCount": 100,
+      "lcaYear": 2025,
+      "medianLcaWage": 128341,
+      "topLcaTitles": [
+        "Software Developer"
+      ],
+      "dataSource": "DOL_LCA",
+      "lastCheckedAt": "2026-09-18T06:17:52.975Z"
+    },
+    "verification": {
+      "id": "ver_comp_31",
+      "companyId": "comp_31",
+      "verdict": "VERIFIED",
+      "rules": [
+        {
+          "rule": "HAS_WEBSITE",
+          "label": "Has functioning website",
+          "passed": true,
+          "observed": null
+        },
+        {
+          "rule": "EMPLOYEE_COUNT",
+          "label": "10+ employees",
+          "passed": true,
+          "observed": null
+        },
+        {
+          "rule": "US_PRESENCE",
+          "label": "US office confirmed",
+          "passed": true,
+          "observed": null
+        }
+      ],
+      "firedRule": null,
+      "isManual": false,
+      "overrideReason": null,
+      "checkedAt": "2026-09-18T06:17:52.975Z",
+      "expiresAt": "2026-12-26T06:17:52.975Z"
+    }
+  },
+  {
+    "id": "comp_32",
+    "name": "Kforce Inc",
+    "normalisedName": "kforce-inc",
+    "domain": "kforce.com",
+    "websiteUrl": "https://kforce.com",
+    "linkedinUrl": "https://linkedin.com/company/kforce-inc",
+    "employeeBand": "1000+",
+    "hasUsPresence": true,
+    "clientType": "PRIME_VENDOR",
+    "atsProvider": "Greenhouse",
+    "h1b": {
+      "sponsorsH1b": false,
+      "lcaCount": 0,
+      "lcaYear": null,
+      "medianLcaWage": null,
+      "topLcaTitles": [],
+      "dataSource": "DOL_LCA",
+      "lastCheckedAt": "2026-08-28T06:17:52.975Z"
+    },
+    "verification": {
+      "id": "ver_comp_32",
+      "companyId": "comp_32",
+      "verdict": "VERIFIED",
+      "rules": [
+        {
+          "rule": "HAS_WEBSITE",
+          "label": "Has functioning website",
+          "passed": true,
+          "observed": null
+        },
+        {
+          "rule": "EMPLOYEE_COUNT",
+          "label": "10+ employees",
+          "passed": true,
+          "observed": null
+        },
+        {
+          "rule": "US_PRESENCE",
+          "label": "US office confirmed",
+          "passed": true,
+          "observed": null
+        }
+      ],
+      "firedRule": null,
+      "isManual": false,
+      "overrideReason": null,
+      "checkedAt": "2026-09-22T06:17:52.975Z",
+      "expiresAt": "2027-03-19T06:17:52.975Z"
+    }
+  },
+  {
+    "id": "comp_33",
+    "name": "Randstad Digital",
+    "normalisedName": "randstad-digital",
+    "domain": "randstaddigital.com",
+    "websiteUrl": "https://randstaddigital.com",
+    "linkedinUrl": "https://linkedin.com/company/randstad-digital",
+    "employeeBand": "1000+",
+    "hasUsPresence": true,
+    "clientType": "PRIME_VENDOR",
+    "atsProvider": "Taleo",
+    "h1b": {
+      "sponsorsH1b": false,
+      "lcaCount": 0,
+      "lcaYear": null,
+      "medianLcaWage": null,
+      "topLcaTitles": [],
+      "dataSource": "DOL_LCA",
+      "lastCheckedAt": "2026-09-27T06:17:52.975Z"
+    },
+    "verification": {
+      "id": "ver_comp_33",
+      "companyId": "comp_33",
+      "verdict": "VERIFIED",
+      "rules": [
+        {
+          "rule": "HAS_WEBSITE",
+          "label": "Has functioning website",
+          "passed": true,
+          "observed": null
+        },
+        {
+          "rule": "EMPLOYEE_COUNT",
+          "label": "10+ employees",
+          "passed": true,
+          "observed": null
+        },
+        {
+          "rule": "US_PRESENCE",
+          "label": "US office confirmed",
+          "passed": true,
+          "observed": null
+        }
+      ],
+      "firedRule": null,
+      "isManual": false,
+      "overrideReason": null,
+      "checkedAt": "2026-09-28T06:17:52.975Z",
+      "expiresAt": "2027-03-10T06:17:52.975Z"
+    }
+  },
+  {
+    "id": "comp_34",
+    "name": "Apex Systems",
+    "normalisedName": "apex-systems",
+    "domain": "apexsystems.com",
+    "websiteUrl": "https://apexsystems.com",
+    "linkedinUrl": "https://linkedin.com/company/apex-systems",
+    "employeeBand": "1000+",
+    "hasUsPresence": true,
+    "clientType": "PRIME_VENDOR",
+    "atsProvider": "Lever",
+    "h1b": {
+      "sponsorsH1b": false,
+      "lcaCount": 0,
+      "lcaYear": null,
+      "medianLcaWage": null,
+      "topLcaTitles": [],
+      "dataSource": "DOL_LCA",
+      "lastCheckedAt": "2026-08-09T06:17:52.975Z"
+    },
+    "verification": {
+      "id": "ver_comp_34",
+      "companyId": "comp_34",
+      "verdict": "VERIFIED",
+      "rules": [
+        {
+          "rule": "HAS_WEBSITE",
+          "label": "Has functioning website",
+          "passed": true,
+          "observed": null
+        },
+        {
+          "rule": "EMPLOYEE_COUNT",
+          "label": "10+ employees",
+          "passed": true,
+          "observed": null
+        },
+        {
+          "rule": "US_PRESENCE",
+          "label": "US office confirmed",
+          "passed": true,
+          "observed": null
+        }
+      ],
+      "firedRule": null,
+      "isManual": false,
+      "overrideReason": null,
+      "checkedAt": "2026-09-15T06:17:52.975Z",
+      "expiresAt": "2027-02-15T06:17:52.975Z"
+    }
+  },
+  {
+    "id": "comp_35",
+    "name": "Insight Global",
+    "normalisedName": "insight-global",
+    "domain": "insightglobal.com",
+    "websiteUrl": "https://insightglobal.com",
+    "linkedinUrl": "https://linkedin.com/company/insight-global",
+    "employeeBand": "1000+",
+    "hasUsPresence": true,
+    "clientType": "PRIME_VENDOR",
+    "atsProvider": "iCIMS",
+    "h1b": {
+      "sponsorsH1b": false,
+      "lcaCount": 0,
+      "lcaYear": null,
+      "medianLcaWage": null,
+      "topLcaTitles": [],
+      "dataSource": "DOL_LCA",
+      "lastCheckedAt": "2026-08-31T06:17:52.975Z"
+    },
+    "verification": {
+      "id": "ver_comp_35",
+      "companyId": "comp_35",
+      "verdict": "VERIFIED",
+      "rules": [
+        {
+          "rule": "HAS_WEBSITE",
+          "label": "Has functioning website",
+          "passed": true,
+          "observed": null
+        },
+        {
+          "rule": "EMPLOYEE_COUNT",
+          "label": "10+ employees",
+          "passed": true,
+          "observed": null
+        },
+        {
+          "rule": "US_PRESENCE",
+          "label": "US office confirmed",
+          "passed": true,
+          "observed": null
+        }
+      ],
+      "firedRule": null,
+      "isManual": false,
+      "overrideReason": null,
+      "checkedAt": "2026-09-18T06:17:52.975Z",
+      "expiresAt": "2027-02-28T06:17:52.975Z"
+    }
+  },
+  {
+    "id": "comp_36",
+    "name": "Collabera Inc",
+    "normalisedName": "collabera-inc",
+    "domain": "collabera.com",
+    "websiteUrl": "https://collabera.com",
+    "linkedinUrl": "https://linkedin.com/company/collabera-inc",
+    "employeeBand": "501-1000",
+    "hasUsPresence": true,
+    "clientType": "PRIME_VENDOR",
+    "atsProvider": "iCIMS",
+    "h1b": {
+      "sponsorsH1b": true,
+      "lcaCount": 80,
+      "lcaYear": 2025,
+      "medianLcaWage": 110020,
+      "topLcaTitles": [
+        "Software Developer",
+        "Systems Analyst"
+      ],
+      "dataSource": "DOL_LCA",
+      "lastCheckedAt": "2026-08-06T06:17:52.975Z"
+    },
+    "verification": {
+      "id": "ver_comp_36",
+      "companyId": "comp_36",
+      "verdict": "CAUTION",
+      "rules": [
+        {
+          "rule": "CONTRACTOR_COMPLAINTS",
+          "label": "Multiple contractor complaints on file",
+          "passed": false,
+          "observed": "Flagged during automated check"
+        }
+      ],
+      "firedRule": "CONTRACTOR_COMPLAINTS",
+      "isManual": false,
+      "overrideReason": null,
+      "checkedAt": "2026-09-11T06:17:52.975Z",
+      "expiresAt": "2026-11-29T06:17:52.975Z"
+    }
+  },
+  {
+    "id": "comp_37",
+    "name": "Brillio LLC",
+    "normalisedName": "brillio-llc",
+    "domain": "brillio.com",
+    "websiteUrl": "https://brillio.com",
+    "linkedinUrl": "https://linkedin.com/company/brillio-llc",
+    "employeeBand": "501-1000",
+    "hasUsPresence": true,
+    "clientType": "PRIME_VENDOR",
+    "atsProvider": "Workday",
+    "h1b": {
+      "sponsorsH1b": true,
+      "lcaCount": 60,
+      "lcaYear": 2025,
+      "medianLcaWage": 106762,
+      "topLcaTitles": [
+        "Software Developer",
+        "Systems Analyst",
+        "Data Engineer"
+      ],
+      "dataSource": "DOL_LCA",
+      "lastCheckedAt": "2026-08-28T06:17:52.975Z"
+    },
+    "verification": {
+      "id": "ver_comp_37",
+      "companyId": "comp_37",
+      "verdict": "VERIFIED",
+      "rules": [
+        {
+          "rule": "HAS_WEBSITE",
+          "label": "Has functioning website",
+          "passed": true,
+          "observed": null
+        },
+        {
+          "rule": "EMPLOYEE_COUNT",
+          "label": "10+ employees",
+          "passed": true,
+          "observed": null
+        },
+        {
+          "rule": "US_PRESENCE",
+          "label": "US office confirmed",
+          "passed": true,
+          "observed": null
+        }
+      ],
+      "firedRule": null,
+      "isManual": false,
+      "overrideReason": null,
+      "checkedAt": "2026-09-02T06:17:52.975Z",
+      "expiresAt": "2026-12-20T06:17:52.975Z"
+    }
+  },
+  {
+    "id": "comp_38",
+    "name": "Miraclesoft Inc",
+    "normalisedName": "miraclesoft-inc",
+    "domain": "miraclesoft.com",
+    "websiteUrl": "https://miraclesoft.com",
+    "linkedinUrl": "https://linkedin.com/company/miraclesoft-inc",
+    "employeeBand": "201-500",
+    "hasUsPresence": true,
+    "clientType": "PRIME_VENDOR",
+    "atsProvider": "Taleo",
+    "h1b": null,
+    "verification": {
+      "id": "ver_comp_38",
+      "companyId": "comp_38",
+      "verdict": "CAUTION",
+      "rules": [
+        {
+          "rule": "INCONSISTENT_ADDRESS",
+          "label": "Registered address inconsistent with office",
+          "passed": false,
+          "observed": "Flagged during automated check"
+        }
+      ],
+      "firedRule": "INCONSISTENT_ADDRESS",
+      "isManual": false,
+      "overrideReason": null,
+      "checkedAt": "2026-09-29T06:17:52.975Z",
+      "expiresAt": "2026-12-09T06:17:52.975Z"
+    }
+  },
+  {
+    "id": "comp_39",
+    "name": "Diverse Lynx",
+    "normalisedName": "diverse-lynx",
+    "domain": "diverselynx.com",
+    "websiteUrl": "https://diverselynx.com",
+    "linkedinUrl": "https://linkedin.com/company/diverse-lynx",
+    "employeeBand": "201-500",
+    "hasUsPresence": true,
+    "clientType": "PRIME_VENDOR",
+    "atsProvider": "Workday",
+    "h1b": null,
+    "verification": {
+      "id": "ver_comp_39",
+      "companyId": "comp_39",
+      "verdict": "CAUTION",
+      "rules": [
+        {
+          "rule": "HIGH_TURNOVER_RATE",
+          "label": "High employee turnover reported",
+          "passed": false,
+          "observed": "Flagged during automated check"
+        }
+      ],
+      "firedRule": "HIGH_TURNOVER_RATE",
+      "isManual": false,
+      "overrideReason": null,
+      "checkedAt": "2026-09-05T06:17:52.975Z",
+      "expiresAt": "2026-12-08T06:17:52.975Z"
+    }
+  },
+  {
+    "id": "comp_40",
+    "name": "ProKarma Inc",
+    "normalisedName": "prokarma-inc",
+    "domain": "prokarma.com",
+    "websiteUrl": "https://prokarma.com",
+    "linkedinUrl": "https://linkedin.com/company/prokarma-inc",
+    "employeeBand": "201-500",
+    "hasUsPresence": true,
+    "clientType": "PRIME_VENDOR",
+    "atsProvider": null,
+    "h1b": {
+      "sponsorsH1b": true,
+      "lcaCount": 40,
+      "lcaYear": 2025,
+      "medianLcaWage": 124397,
+      "topLcaTitles": [
+        "Software Developer"
+      ],
+      "dataSource": "DOL_LCA",
+      "lastCheckedAt": "2026-09-03T06:17:52.975Z"
+    },
+    "verification": {
+      "id": "ver_comp_40",
+      "companyId": "comp_40",
+      "verdict": "CAUTION",
+      "rules": [
+        {
+          "rule": "PENDING_LITIGATION",
+          "label": "Pending DOL litigation",
+          "passed": false,
+          "observed": "Flagged during automated check"
+        }
+      ],
+      "firedRule": "PENDING_LITIGATION",
+      "isManual": false,
+      "overrideReason": null,
+      "checkedAt": "2026-09-10T06:17:52.975Z",
+      "expiresAt": "2026-10-31T06:17:52.975Z"
+    }
+  },
+  {
+    "id": "comp_41",
+    "name": "Falcon Tech Solutions",
+    "normalisedName": "falcon-tech-solutions",
+    "domain": "falcontech.net",
+    "websiteUrl": "https://falcontech.net",
+    "linkedinUrl": "https://linkedin.com/company/falcon-tech-solutions",
+    "employeeBand": "11-50",
+    "hasUsPresence": true,
+    "clientType": "PRIME_VENDOR",
+    "atsProvider": null,
+    "h1b": null,
+    "verification": {
+      "id": "ver_comp_41",
+      "companyId": "comp_41",
+      "verdict": "REJECTED",
+      "rules": [
+        {
+          "rule": "EMPLOYEE_COUNT_UNDER_10",
+          "label": "Fewer than 10 employees",
+          "passed": false,
+          "observed": "LinkedIn shows 8 employees"
+        }
+      ],
+      "firedRule": "EMPLOYEE_COUNT_UNDER_10",
+      "isManual": false,
+      "overrideReason": null,
+      "checkedAt": "2026-09-10T06:17:52.975Z",
+      "expiresAt": "2026-12-17T06:17:52.975Z"
+    }
+  },
+  {
+    "id": "comp_42",
+    "name": "NexGen IT Corp",
+    "normalisedName": "nexgen-it-corp",
+    "domain": "nexgenit.com",
+    "websiteUrl": "https://nexgenit.com",
+    "linkedinUrl": "https://linkedin.com/company/nexgen-it-corp",
+    "employeeBand": "11-50",
+    "hasUsPresence": true,
+    "clientType": "PRIME_VENDOR",
+    "atsProvider": null,
+    "h1b": null,
+    "verification": {
+      "id": "ver_comp_42",
+      "companyId": "comp_42",
+      "verdict": "REJECTED",
+      "rules": [
+        {
+          "rule": "NO_FUNCTIONING_WEBSITE",
+          "label": "No functioning website",
+          "passed": false,
+          "observed": "Domain parked, no content"
+        }
+      ],
+      "firedRule": "NO_FUNCTIONING_WEBSITE",
+      "isManual": false,
+      "overrideReason": null,
+      "checkedAt": "2026-09-09T06:17:52.975Z",
+      "expiresAt": "2026-12-10T06:17:52.975Z"
+    }
+  },
+  {
+    "id": "comp_43",
+    "name": "Deloitte Consulting",
+    "normalisedName": "deloitte-consulting",
+    "domain": "deloitte.com",
+    "websiteUrl": "https://deloitte.com",
+    "linkedinUrl": "https://linkedin.com/company/deloitte-consulting",
+    "employeeBand": "1000+",
+    "hasUsPresence": true,
+    "clientType": "IMPLEMENTATION_PARTNER",
+    "atsProvider": "Workday",
+    "h1b": {
+      "sponsorsH1b": true,
+      "lcaCount": 350,
+      "lcaYear": 2025,
+      "medianLcaWage": 96574,
+      "topLcaTitles": [
+        "Software Developer"
+      ],
+      "dataSource": "DOL_LCA",
+      "lastCheckedAt": "2026-09-06T06:17:52.975Z"
+    },
+    "verification": {
+      "id": "ver_comp_43",
+      "companyId": "comp_43",
+      "verdict": "VERIFIED",
+      "rules": [
+        {
+          "rule": "HAS_WEBSITE",
+          "label": "Has functioning website",
+          "passed": true,
+          "observed": null
+        },
+        {
+          "rule": "EMPLOYEE_COUNT",
+          "label": "10+ employees",
+          "passed": true,
+          "observed": null
+        },
+        {
+          "rule": "US_PRESENCE",
+          "label": "US office confirmed",
+          "passed": true,
+          "observed": null
+        }
+      ],
+      "firedRule": null,
+      "isManual": false,
+      "overrideReason": null,
+      "checkedAt": "2026-09-29T06:17:52.975Z",
+      "expiresAt": "2027-01-27T06:17:52.975Z"
+    }
+  },
+  {
+    "id": "comp_44",
+    "name": "Accenture Federal",
+    "normalisedName": "accenture-federal",
+    "domain": "accenture.com",
+    "websiteUrl": "https://accenture.com",
+    "linkedinUrl": "https://linkedin.com/company/accenture-federal",
+    "employeeBand": "1000+",
+    "hasUsPresence": true,
+    "clientType": "IMPLEMENTATION_PARTNER",
+    "atsProvider": "Taleo",
+    "h1b": {
+      "sponsorsH1b": true,
+      "lcaCount": 400,
+      "lcaYear": 2025,
+      "medianLcaWage": 100786,
+      "topLcaTitles": [
+        "Software Developer",
+        "Systems Analyst"
+      ],
+      "dataSource": "DOL_LCA",
+      "lastCheckedAt": "2026-08-03T06:17:52.975Z"
+    },
+    "verification": {
+      "id": "ver_comp_44",
+      "companyId": "comp_44",
+      "verdict": "VERIFIED",
+      "rules": [
+        {
+          "rule": "HAS_WEBSITE",
+          "label": "Has functioning website",
+          "passed": true,
+          "observed": null
+        },
+        {
+          "rule": "EMPLOYEE_COUNT",
+          "label": "10+ employees",
+          "passed": true,
+          "observed": null
+        },
+        {
+          "rule": "US_PRESENCE",
+          "label": "US office confirmed",
+          "passed": true,
+          "observed": null
+        }
+      ],
+      "firedRule": null,
+      "isManual": false,
+      "overrideReason": null,
+      "checkedAt": "2026-09-02T06:17:52.975Z",
+      "expiresAt": "2026-12-12T06:17:52.975Z"
+    }
+  },
+  {
+    "id": "comp_45",
+    "name": "IBM Consulting",
+    "normalisedName": "ibm-consulting",
+    "domain": "ibm.com",
+    "websiteUrl": "https://ibm.com",
+    "linkedinUrl": "https://linkedin.com/company/ibm-consulting",
+    "employeeBand": "1000+",
+    "hasUsPresence": true,
+    "clientType": "IMPLEMENTATION_PARTNER",
+    "atsProvider": null,
+    "h1b": {
+      "sponsorsH1b": true,
+      "lcaCount": 300,
+      "lcaYear": 2025,
+      "medianLcaWage": 104751,
+      "topLcaTitles": [
+        "Software Developer"
+      ],
+      "dataSource": "DOL_LCA",
+      "lastCheckedAt": "2026-08-12T06:17:52.975Z"
+    },
+    "verification": {
+      "id": "ver_comp_45",
+      "companyId": "comp_45",
+      "verdict": "VERIFIED",
+      "rules": [
+        {
+          "rule": "HAS_WEBSITE",
+          "label": "Has functioning website",
+          "passed": true,
+          "observed": null
+        },
+        {
+          "rule": "EMPLOYEE_COUNT",
+          "label": "10+ employees",
+          "passed": true,
+          "observed": null
+        },
+        {
+          "rule": "US_PRESENCE",
+          "label": "US office confirmed",
+          "passed": true,
+          "observed": null
+        }
+      ],
+      "firedRule": null,
+      "isManual": false,
+      "overrideReason": null,
+      "checkedAt": "2026-09-19T06:17:52.975Z",
+      "expiresAt": "2027-02-19T06:17:52.975Z"
+    }
+  },
+  {
+    "id": "comp_46",
+    "name": "Capgemini America",
+    "normalisedName": "capgemini-america",
+    "domain": "capgemini.com",
+    "websiteUrl": "https://capgemini.com",
+    "linkedinUrl": "https://linkedin.com/company/capgemini-america",
+    "employeeBand": "1000+",
+    "hasUsPresence": true,
+    "clientType": "IMPLEMENTATION_PARTNER",
+    "atsProvider": "Workday",
+    "h1b": {
+      "sponsorsH1b": true,
+      "lcaCount": 280,
+      "lcaYear": 2025,
+      "medianLcaWage": 95944,
+      "topLcaTitles": [
+        "Software Developer",
+        "Systems Analyst",
+        "Data Engineer"
+      ],
+      "dataSource": "DOL_LCA",
+      "lastCheckedAt": "2026-08-08T06:17:52.975Z"
+    },
+    "verification": {
+      "id": "ver_comp_46",
+      "companyId": "comp_46",
+      "verdict": "VERIFIED",
+      "rules": [
+        {
+          "rule": "HAS_WEBSITE",
+          "label": "Has functioning website",
+          "passed": true,
+          "observed": null
+        },
+        {
+          "rule": "EMPLOYEE_COUNT",
+          "label": "10+ employees",
+          "passed": true,
+          "observed": null
+        },
+        {
+          "rule": "US_PRESENCE",
+          "label": "US office confirmed",
+          "passed": true,
+          "observed": null
+        }
+      ],
+      "firedRule": null,
+      "isManual": false,
+      "overrideReason": null,
+      "checkedAt": "2026-09-18T06:17:52.975Z",
+      "expiresAt": "2027-01-27T06:17:52.975Z"
+    }
+  },
+  {
+    "id": "comp_47",
+    "name": "PwC Advisory",
+    "normalisedName": "pwc-advisory",
+    "domain": "pwc.com",
+    "websiteUrl": "https://pwc.com",
+    "linkedinUrl": "https://linkedin.com/company/pwc-advisory",
+    "employeeBand": "1000+",
+    "hasUsPresence": true,
+    "clientType": "IMPLEMENTATION_PARTNER",
+    "atsProvider": "Taleo",
+    "h1b": {
+      "sponsorsH1b": true,
+      "lcaCount": 220,
+      "lcaYear": 2025,
+      "medianLcaWage": 104959,
+      "topLcaTitles": [
+        "Software Developer",
+        "Systems Analyst"
+      ],
+      "dataSource": "DOL_LCA",
+      "lastCheckedAt": "2026-08-12T06:17:52.975Z"
+    },
+    "verification": {
+      "id": "ver_comp_47",
+      "companyId": "comp_47",
+      "verdict": "VERIFIED",
+      "rules": [
+        {
+          "rule": "HAS_WEBSITE",
+          "label": "Has functioning website",
+          "passed": true,
+          "observed": null
+        },
+        {
+          "rule": "EMPLOYEE_COUNT",
+          "label": "10+ employees",
+          "passed": true,
+          "observed": null
+        },
+        {
+          "rule": "US_PRESENCE",
+          "label": "US office confirmed",
+          "passed": true,
+          "observed": null
+        }
+      ],
+      "firedRule": null,
+      "isManual": false,
+      "overrideReason": null,
+      "checkedAt": "2026-09-08T06:17:52.975Z",
+      "expiresAt": "2027-02-04T06:17:52.975Z"
+    }
+  },
+  {
+    "id": "comp_48",
+    "name": "KPMG Advisory",
+    "normalisedName": "kpmg-advisory",
+    "domain": "kpmg.com",
+    "websiteUrl": "https://kpmg.com",
+    "linkedinUrl": "https://linkedin.com/company/kpmg-advisory",
+    "employeeBand": "1000+",
+    "hasUsPresence": true,
+    "clientType": "IMPLEMENTATION_PARTNER",
+    "atsProvider": "Greenhouse",
+    "h1b": {
+      "sponsorsH1b": true,
+      "lcaCount": 190,
+      "lcaYear": 2025,
+      "medianLcaWage": 115136,
+      "topLcaTitles": [
+        "Software Developer"
+      ],
+      "dataSource": "DOL_LCA",
+      "lastCheckedAt": "2026-09-17T06:17:52.975Z"
+    },
+    "verification": {
+      "id": "ver_comp_48",
+      "companyId": "comp_48",
+      "verdict": "VERIFIED",
+      "rules": [
+        {
+          "rule": "HAS_WEBSITE",
+          "label": "Has functioning website",
+          "passed": true,
+          "observed": null
+        },
+        {
+          "rule": "EMPLOYEE_COUNT",
+          "label": "10+ employees",
+          "passed": true,
+          "observed": null
+        },
+        {
+          "rule": "US_PRESENCE",
+          "label": "US office confirmed",
+          "passed": true,
+          "observed": null
+        }
+      ],
+      "firedRule": null,
+      "isManual": false,
+      "overrideReason": null,
+      "checkedAt": "2026-09-17T06:17:52.975Z",
+      "expiresAt": "2026-12-06T06:17:52.975Z"
+    }
+  },
+  {
+    "id": "comp_49",
+    "name": "EY Technology",
+    "normalisedName": "ey-technology",
+    "domain": "ey.com",
+    "websiteUrl": "https://ey.com",
+    "linkedinUrl": "https://linkedin.com/company/ey-technology",
+    "employeeBand": "1000+",
+    "hasUsPresence": true,
+    "clientType": "IMPLEMENTATION_PARTNER",
+    "atsProvider": "Workday",
+    "h1b": {
+      "sponsorsH1b": true,
+      "lcaCount": 170,
+      "lcaYear": 2025,
+      "medianLcaWage": 90929,
+      "topLcaTitles": [
+        "Software Developer",
+        "Systems Analyst"
+      ],
+      "dataSource": "DOL_LCA",
+      "lastCheckedAt": "2026-09-22T06:17:52.975Z"
+    },
+    "verification": {
+      "id": "ver_comp_49",
+      "companyId": "comp_49",
+      "verdict": "VERIFIED",
+      "rules": [
+        {
+          "rule": "HAS_WEBSITE",
+          "label": "Has functioning website",
+          "passed": true,
+          "observed": null
+        },
+        {
+          "rule": "EMPLOYEE_COUNT",
+          "label": "10+ employees",
+          "passed": true,
+          "observed": null
+        },
+        {
+          "rule": "US_PRESENCE",
+          "label": "US office confirmed",
+          "passed": true,
+          "observed": null
+        }
+      ],
+      "firedRule": null,
+      "isManual": false,
+      "overrideReason": null,
+      "checkedAt": "2026-09-17T06:17:52.975Z",
+      "expiresAt": "2027-01-02T06:17:52.975Z"
+    }
+  },
+  {
+    "id": "comp_50",
+    "name": "CGI Group",
+    "normalisedName": "cgi-group",
+    "domain": "cgi.com",
+    "websiteUrl": "https://cgi.com",
+    "linkedinUrl": "https://linkedin.com/company/cgi-group",
+    "employeeBand": "1000+",
+    "hasUsPresence": true,
+    "clientType": "IMPLEMENTATION_PARTNER",
+    "atsProvider": "Lever",
+    "h1b": {
+      "sponsorsH1b": true,
+      "lcaCount": 130,
+      "lcaYear": 2025,
+      "medianLcaWage": 118452,
+      "topLcaTitles": [
+        "Software Developer",
+        "Systems Analyst",
+        "Data Engineer"
+      ],
+      "dataSource": "DOL_LCA",
+      "lastCheckedAt": "2026-08-20T06:17:52.975Z"
+    },
+    "verification": {
+      "id": "ver_comp_50",
+      "companyId": "comp_50",
+      "verdict": "VERIFIED",
+      "rules": [
+        {
+          "rule": "HAS_WEBSITE",
+          "label": "Has functioning website",
+          "passed": true,
+          "observed": null
+        },
+        {
+          "rule": "EMPLOYEE_COUNT",
+          "label": "10+ employees",
+          "passed": true,
+          "observed": null
+        },
+        {
+          "rule": "US_PRESENCE",
+          "label": "US office confirmed",
+          "passed": true,
+          "observed": null
+        }
+      ],
+      "firedRule": null,
+      "isManual": false,
+      "overrideReason": null,
+      "checkedAt": "2026-09-26T06:17:52.975Z",
+      "expiresAt": "2027-03-29T06:17:52.975Z"
+    }
+  },
+  {
+    "id": "comp_51",
+    "name": "Slalom Consulting",
+    "normalisedName": "slalom-consulting",
+    "domain": "slalom.com",
+    "websiteUrl": "https://slalom.com",
+    "linkedinUrl": "https://linkedin.com/company/slalom-consulting",
+    "employeeBand": "1000+",
+    "hasUsPresence": true,
+    "clientType": "IMPLEMENTATION_PARTNER",
+    "atsProvider": "iCIMS",
+    "h1b": {
+      "sponsorsH1b": false,
+      "lcaCount": 0,
+      "lcaYear": null,
+      "medianLcaWage": null,
+      "topLcaTitles": [],
+      "dataSource": "DOL_LCA",
+      "lastCheckedAt": "2026-09-19T06:17:52.975Z"
+    },
+    "verification": {
+      "id": "ver_comp_51",
+      "companyId": "comp_51",
+      "verdict": "CAUTION",
+      "rules": [
+        {
+          "rule": "C2C_NOT_ACCEPTED",
+          "label": "Does not accept C2C arrangements",
+          "passed": false,
+          "observed": "Flagged during automated check"
+        }
+      ],
+      "firedRule": "C2C_NOT_ACCEPTED",
+      "isManual": false,
+      "overrideReason": null,
+      "checkedAt": "2026-09-11T06:17:52.975Z",
+      "expiresAt": "2026-12-27T06:17:52.975Z"
+    }
+  },
+  {
+    "id": "comp_52",
+    "name": "West Monroe Partners",
+    "normalisedName": "west-monroe-partners",
+    "domain": "westmonroe.com",
+    "websiteUrl": "https://westmonroe.com",
+    "linkedinUrl": "https://linkedin.com/company/west-monroe-partners",
+    "employeeBand": "501-1000",
+    "hasUsPresence": true,
+    "clientType": "IMPLEMENTATION_PARTNER",
+    "atsProvider": "Lever",
+    "h1b": {
+      "sponsorsH1b": false,
+      "lcaCount": 0,
+      "lcaYear": null,
+      "medianLcaWage": null,
+      "topLcaTitles": [],
+      "dataSource": "DOL_LCA",
+      "lastCheckedAt": "2026-08-11T06:17:52.975Z"
+    },
+    "verification": {
+      "id": "ver_comp_52",
+      "companyId": "comp_52",
+      "verdict": "CAUTION",
+      "rules": [
+        {
+          "rule": "SLOW_PAYMENT_HISTORY",
+          "label": "Payment delays reported (60+ days)",
+          "passed": false,
+          "observed": "Flagged during automated check"
+        }
+      ],
+      "firedRule": "SLOW_PAYMENT_HISTORY",
+      "isManual": false,
+      "overrideReason": null,
+      "checkedAt": "2026-09-19T06:17:52.975Z",
+      "expiresAt": "2026-11-24T06:17:52.975Z"
+    }
+  },
+  {
+    "id": "comp_53",
+    "name": "DataPulse Systems",
+    "normalisedName": "datapulse-systems",
+    "domain": "datapulse-sys.com",
+    "websiteUrl": "https://datapulse-sys.com",
+    "linkedinUrl": "https://linkedin.com/company/datapulse-systems",
+    "employeeBand": null,
+    "hasUsPresence": true,
+    "clientType": "UNKNOWN",
+    "atsProvider": null,
+    "h1b": null,
+    "verification": {
+      "id": "ver_comp_53",
+      "companyId": "comp_53",
+      "verdict": "CAUTION",
+      "rules": [
+        {
+          "rule": "INSUFFICIENT_DATA",
+          "label": "Insufficient data for verification",
+          "passed": false,
+          "observed": "Flagged during automated check"
+        }
+      ],
+      "firedRule": "INSUFFICIENT_DATA",
+      "isManual": false,
+      "overrideReason": null,
+      "checkedAt": "2026-09-19T06:17:52.975Z",
+      "expiresAt": "2026-12-04T06:17:52.975Z"
+    }
+  },
+  {
+    "id": "comp_54",
+    "name": "CloudBridge Tech",
+    "normalisedName": "cloudbridge-tech",
+    "domain": "cloudbridge-tech.io",
+    "websiteUrl": "https://cloudbridge-tech.io",
+    "linkedinUrl": "https://linkedin.com/company/cloudbridge-tech",
+    "employeeBand": null,
+    "hasUsPresence": true,
+    "clientType": "UNKNOWN",
+    "atsProvider": "Lever",
+    "h1b": null,
+    "verification": {
+      "id": "ver_comp_54",
+      "companyId": "comp_54",
+      "verdict": "CAUTION",
+      "rules": [
+        {
+          "rule": "INSUFFICIENT_DATA",
+          "label": "Insufficient data for verification",
+          "passed": false,
+          "observed": "Flagged during automated check"
+        }
+      ],
+      "firedRule": "INSUFFICIENT_DATA",
+      "isManual": false,
+      "overrideReason": null,
+      "checkedAt": "2026-09-20T06:17:52.975Z",
+      "expiresAt": "2026-11-25T06:17:52.975Z"
+    }
+  },
+  {
+    "id": "comp_55",
+    "name": "VortexAI Solutions",
+    "normalisedName": "vortexai-solutions",
+    "domain": null,
+    "websiteUrl": null,
+    "linkedinUrl": null,
+    "employeeBand": null,
+    "hasUsPresence": true,
+    "clientType": "UNKNOWN",
+    "atsProvider": "Lever",
+    "h1b": null,
+    "verification": {
+      "id": "ver_comp_55",
+      "companyId": "comp_55",
+      "verdict": "REJECTED",
+      "rules": [
+        {
+          "rule": "NO_FUNCTIONING_WEBSITE",
+          "label": "No functioning website",
+          "passed": false,
+          "observed": "No web presence found"
+        }
+      ],
+      "firedRule": "NO_FUNCTIONING_WEBSITE",
+      "isManual": false,
+      "overrideReason": null,
+      "checkedAt": "2026-09-06T06:17:52.975Z",
+      "expiresAt": "2026-11-23T06:17:52.975Z"
+    }
+  },
+  {
+    "id": "comp_56",
+    "name": "Pinnacle InfoTech",
+    "normalisedName": "pinnacle-infotech",
+    "domain": "pinnacle-infotech.com",
+    "websiteUrl": "https://pinnacle-infotech.com",
+    "linkedinUrl": "https://linkedin.com/company/pinnacle-infotech",
+    "employeeBand": "1-10",
+    "hasUsPresence": false,
+    "clientType": "UNKNOWN",
+    "atsProvider": "Taleo",
+    "h1b": null,
+    "verification": {
+      "id": "ver_comp_56",
+      "companyId": "comp_56",
+      "verdict": "REJECTED",
+      "rules": [
+        {
+          "rule": "NO_US_PRESENCE",
+          "label": "No US office confirmed",
+          "passed": false,
+          "observed": "Only India address found"
+        }
+      ],
+      "firedRule": "NO_US_PRESENCE",
+      "isManual": false,
+      "overrideReason": null,
+      "checkedAt": "2026-09-17T06:17:52.975Z",
+      "expiresAt": "2026-11-22T06:17:52.975Z"
+    }
+  },
+  {
+    "id": "comp_57",
+    "name": "StarVertex Corp",
+    "normalisedName": "starvertex-corp",
+    "domain": "starvertex.com",
+    "websiteUrl": "https://starvertex.com",
+    "linkedinUrl": "https://linkedin.com/company/starvertex-corp",
+    "employeeBand": "11-50",
+    "hasUsPresence": true,
+    "clientType": "UNKNOWN",
+    "atsProvider": "iCIMS",
+    "h1b": null,
+    "verification": {
+      "id": "ver_comp_57",
+      "companyId": "comp_57",
+      "verdict": "CAUTION",
+      "rules": [
+        {
+          "rule": "RECENT_NAME_CHANGE",
+          "label": "Recent corporate name change",
+          "passed": false,
+          "observed": "Flagged during automated check"
+        }
+      ],
+      "firedRule": "RECENT_NAME_CHANGE",
+      "isManual": false,
+      "overrideReason": null,
+      "checkedAt": "2026-09-08T06:17:52.975Z",
+      "expiresAt": "2026-11-27T06:17:52.975Z"
+    }
+  },
+  {
+    "id": "comp_58",
+    "name": "ByteForge Inc",
+    "normalisedName": "byteforge-inc",
+    "domain": "byteforge.dev",
+    "websiteUrl": "https://byteforge.dev",
+    "linkedinUrl": "https://linkedin.com/company/byteforge-inc",
+    "employeeBand": "1-10",
+    "hasUsPresence": true,
+    "clientType": "UNKNOWN",
+    "atsProvider": "Workday",
+    "h1b": {
+      "sponsorsH1b": false,
+      "lcaCount": 0,
+      "lcaYear": null,
+      "medianLcaWage": null,
+      "topLcaTitles": [],
+      "dataSource": "DOL_LCA",
+      "lastCheckedAt": "2026-08-14T06:17:52.975Z"
+    },
+    "verification": {
+      "id": "ver_comp_58",
+      "companyId": "comp_58",
+      "verdict": "REJECTED",
+      "rules": [
+        {
+          "rule": "THIRD_PARTY_NO_END_CLIENT",
+          "label": "Third-party vendor with no disclosed end client",
+          "passed": false,
+          "observed": "Refused to name end client"
+        }
+      ],
+      "firedRule": "THIRD_PARTY_NO_END_CLIENT",
+      "isManual": false,
+      "overrideReason": null,
+      "checkedAt": "2026-09-13T06:17:52.975Z",
+      "expiresAt": "2026-12-20T06:17:52.975Z"
+    }
+  },
+  {
+    "id": "comp_59",
+    "name": "Quantum Edge LLC",
+    "normalisedName": "quantum-edge-llc",
+    "domain": "quantumedge.com",
+    "websiteUrl": "https://quantumedge.com",
+    "linkedinUrl": "https://linkedin.com/company/quantum-edge-llc",
+    "employeeBand": "11-50",
+    "hasUsPresence": true,
+    "clientType": "UNKNOWN",
+    "atsProvider": null,
+    "h1b": null,
+    "verification": {
+      "id": "ver_comp_59",
+      "companyId": "comp_59",
+      "verdict": "CAUTION",
+      "rules": [
+        {
+          "rule": "MIXED_REVIEWS",
+          "label": "Mixed online reviews from contractors",
+          "passed": false,
+          "observed": "Flagged during automated check"
+        }
+      ],
+      "firedRule": "MIXED_REVIEWS",
+      "isManual": false,
+      "overrideReason": null,
+      "checkedAt": "2026-09-29T06:17:52.975Z",
+      "expiresAt": "2026-12-19T06:17:52.975Z"
+    }
+  },
+  {
+    "id": "comp_60",
+    "name": "Aether Systems",
+    "normalisedName": "aether-systems",
+    "domain": "aethersys.net",
+    "websiteUrl": "https://aethersys.net",
+    "linkedinUrl": "https://linkedin.com/company/aether-systems",
+    "employeeBand": null,
+    "hasUsPresence": true,
+    "clientType": "UNKNOWN",
+    "atsProvider": "iCIMS",
+    "h1b": null,
+    "verification": {
+      "id": "ver_comp_60",
+      "companyId": "comp_60",
+      "verdict": "REJECTED",
+      "rules": [
+        {
+          "rule": "EMPLOYEE_COUNT_UNDER_10",
+          "label": "Fewer than 10 employees",
+          "passed": false,
+          "observed": "Could not verify any employees"
+        }
+      ],
+      "firedRule": "EMPLOYEE_COUNT_UNDER_10",
+      "isManual": false,
+      "overrideReason": null,
+      "checkedAt": "2026-09-19T06:17:52.975Z",
+      "expiresAt": "2026-11-10T06:17:52.975Z"
+    }
+  }
+]

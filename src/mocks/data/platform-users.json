@@ -1,0 +1,10 @@
+[
+  {
+    "id": "padm_sana",
+    "name": "Sana Mirza",
+    "email": "sana@admin.benchq.test",
+    "role": "PLATFORM_ADMIN",
+    "isActive": true,
+    "lastActiveAt": "2026-10-17T12:00:00.000Z"
+  }
+]

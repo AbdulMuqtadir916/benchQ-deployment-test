@@ -1,0 +1,254 @@
+"use client";
+
+import Link from "next/link";
+import { Suspense, useMemo, useState, useSyncExternalStore } from "react";
+import { useRouter } from "next/navigation";
+import { LayoutGrid, Plus, Table2 } from "lucide-react";
+import { cn } from "@/lib/cn";
+import { CandidateCardGrid } from "@/components/app/candidate/candidate-card-grid";
+import { AssignmentToggle, CandidateListQuery, NeedsBdeTag } from "@/components/app/candidate/assignment-filter";
+import { isWaitingForBde } from "@/lib/derive/assignment";
+import { useUrlState } from "@/lib/routes/use-url-state";
+import type { ColumnDef } from "@tanstack/react-table";
+import type { Candidate } from "@/lib/schemas/candidate";
+import type { CandidateStatus } from "@/lib/schemas/enums";
+import { useCandidates } from "@/lib/hooks/use-candidates";
+import { NO_MANAGER_REASON } from "@/lib/derive/platform";
+import { isManager } from "@/lib/auth/roles";
+import { useApplications } from "@/lib/hooks/use-applications";
+import { useTeam } from "@/lib/hooks/use-team";
+import { can, hasOwnScope, hasTeamScope, scopeCandidates } from "@/lib/auth/permissions";
+import { useSignedInPrincipal } from "@/lib/stores/session-store";
+import { deriveCandidateStats } from "@/lib/derive";
+import { DataTable } from "@/components/app/data-table";
+import { PageHeader } from "@/components/app/page-header";
+import { WorkAuthChip } from "@/components/app/work-auth-chip";
+import { Tag, type TagTone } from "@/components/ui/tag";
+import { Button } from "@/components/ui/button";
+import { formatRelative } from "@/lib/format/timezone";
+import { CandidateStatusSelect, type CandidateStatusFilter } from "@/components/app/candidate-status-select";
+import { useHref } from "@/lib/routes/use-href";
+
+const STATUS_TONE: Record<CandidateStatus, TagTone> = {
+  ON_BENCH: "blue",
+  INTERVIEWING: "violet",
+  OFFER: "green",
+  PLACED: "teal",
+  PAUSED: "amber",
+  INACTIVE: "neutral",
+};
+
+const STATUS_LABEL: Record<CandidateStatus, string> = {
+  ON_BENCH: "On bench",
+  INTERVIEWING: "Interviewing",
+  OFFER: "Offer",
+  PLACED: "Placed",
+  PAUSED: "Paused",
+  INACTIVE: "Inactive",
+};
+
+type View = "table" | "cards";
+const VIEW_KEY = "benchq:candidates:view";
+const viewListeners = new Set<() => void>();
+let chosenView: View | null = null;
+
+// The last view is remembered per browser. Storage can be unavailable, so reads and writes never throw.
+function readView(): View {
+  if (chosenView) return chosenView;
+  try {
+    return localStorage.getItem(VIEW_KEY) === "cards" ? "cards" : "table";
+  } catch {
+    return "table";
+  }
+}
+function subscribeView(listener: () => void) {
+  viewListeners.add(listener);
+  return () => viewListeners.delete(listener);
+}
+function chooseView(next: View) {
+  chosenView = next;
+  try { localStorage.setItem(VIEW_KEY, next); } catch {}
+  viewListeners.forEach((l) => l());
+}
+
+type Row = {
+  candidate: Candidate;
+  bde: string;
+  apps: number;
+  active: number;
+  interviews: number;
+  lastActivity: string | null;
+};
+
+/** useSearchParams (the `?assignment=` filter) needs a Suspense boundary for the static build. */
+export default function CandidatesPage() {
+  return (
+    <Suspense>
+      <CandidatesList />
+    </Suspense>
+  );
+}
+
+function CandidatesList() {
+  const toHref = useHref();
+  const router = useRouter();
+  const principal = useSignedInPrincipal();
+  const isOwnScope = hasOwnScope(principal);
+  const candidatesQuery = useCandidates();
+  const applicationsQuery = useApplications();
+  const teamQuery = useTeam();
+  const [statusFilter, setStatusFilter] = useState<CandidateStatusFilter>("ALL");
+  const [{ assignment }, setQuery] = useUrlState(CandidateListQuery);
+  const view = useSyncExternalStore(subscribeView, readView, () => "table" as View);
+
+
+  const rows = useMemo<Row[]>(() => {
+    const candidates = candidatesQuery.data ?? [];
+    const applications = applicationsQuery.data ?? [];
+    const team = teamQuery.data ?? [];
+    const visible = scopeCandidates(principal, candidates);
+    return visible
+      .filter((c) => statusFilter === "ALL" || c.status === statusFilter)
+      .filter((c) => assignment === "all" || isWaitingForBde(c))
+      .map((c) => {
+        const stats = deriveCandidateStats(c, applications.filter((a) => a.candidateId === c.id));
+        const bde = c.bdeId === null ? "Needs a BDE" : team.find((u) => u.id === c.bdeId)?.name ?? "—";
+        return {
+          candidate: c,
+          bde,
+          apps: stats.applicationsSubmitted,
+          active: stats.applicationsOpen,
+          interviews: stats.interviewsScheduled,
+          lastActivity: stats.lastActivityAt,
+        };
+      });
+  }, [candidatesQuery.data, applicationsQuery.data, teamQuery.data, principal, statusFilter, assignment]);
+  const waiting = useMemo(() => scopeCandidates(principal, candidatesQuery.data ?? []).filter(isWaitingForBde).length, [principal, candidatesQuery.data]);
+
+  const columns = useMemo<ColumnDef<Row, unknown>[]>(() => {
+    const cols: ColumnDef<Row, unknown>[] = [
+      {
+        id: "name",
+        accessorFn: (r) => r.candidate.fullName,
+        header: "Candidate",
+        cell: ({ row }) => (
+          <div className="min-w-0">
+            <div className="text-body-strong truncate">{row.original.candidate.fullName}</div>
+            <div className="text-caption text-[var(--color-text-3)] truncate">{row.original.candidate.primaryRole}</div>
+          </div>
+        ),
+      },
+      {
+        id: "workAuth",
+        accessorFn: (r) => r.candidate.workAuth,
+        header: "Work auth",
+        enableSorting: false,
+        cell: ({ row }) => <WorkAuthChip workAuth={row.original.candidate.workAuth} expiry={row.original.candidate.workAuthExpiry} />,
+      },
+      {
+        id: "status",
+        accessorFn: (r) => r.candidate.status,
+        header: "Status",
+        cell: ({ row }) => <Tag tone={STATUS_TONE[row.original.candidate.status]}>{STATUS_LABEL[row.original.candidate.status]}</Tag>,
+      },
+      { id: "apps", accessorFn: (r) => r.apps, header: "Apps", cell: ({ row }) => <span className="tabular">{row.original.apps}</span> },
+      { id: "active", accessorFn: (r) => r.active, header: "Active", cell: ({ row }) => <span className="tabular">{row.original.active}</span> },
+      { id: "interviews", accessorFn: (r) => r.interviews, header: "Interviews", cell: ({ row }) => <span className="tabular">{row.original.interviews}</span> },
+      {
+        id: "lastActivity",
+        accessorFn: (r) => r.lastActivity ?? "",
+        header: "Last activity",
+        cell: ({ row }) => <span className="whitespace-nowrap text-[var(--color-text-3)]">{row.original.lastActivity ? formatRelative(row.original.lastActivity) : "—"}</span>,
+      },
+    ];
+    if (!isOwnScope) {
+      cols.splice(3, 0, {
+        id: "bde",
+        accessorFn: (r) => r.bde,
+        header: "Assigned BDE",
+        cell: ({ row }) => (row.original.candidate.bdeId === null ? <NeedsBdeTag /> : <span className="text-[var(--color-text-2)]">{row.original.bde}</span>),
+      });
+    }
+    return cols;
+  }, [isOwnScope]);
+
+  const canCreate = can(principal, "candidate.create");
+
+  const toolbar = (
+    <div className="flex flex-wrap items-center gap-2">
+      {isOwnScope ? null : <AssignmentToggle value={assignment} waiting={waiting} onChange={(next) => setQuery({ assignment: next })} />}
+      <CandidateStatusSelect className="w-40" value={statusFilter} onValueChange={setStatusFilter} />
+      <div role="group" aria-label="View" className="inline-flex rounded-[var(--radius-md)] bg-[var(--color-bg-subtle)] p-0.5">
+        {([["table", "Table", Table2], ["cards", "Cards", LayoutGrid]] as const).map(([id, label, Icon]) => (
+          <button key={id} type="button" aria-pressed={view === id} onClick={() => chooseView(id)} className={cn("inline-flex h-7 items-center gap-1.5 rounded-[var(--radius-sm)] px-2.5 text-sm", view === id ? "bg-[var(--color-surface)] font-[550] text-[var(--color-text)] shadow-[var(--shadow-control)]" : "text-[var(--color-text-3)] hover:text-[var(--color-text)]")}>
+            <Icon size={14} aria-hidden />{label}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+
+  return (
+    <div className="bq-page">
+      <PageHeader
+        title="Candidates"
+        subtitle={isOwnScope ? "Your assigned bench." : hasTeamScope(principal) ? "Your team's bench: your BDEs' candidates and the ones waiting for a BDE." : "Every candidate on the firm's bench."}
+        actions={
+          canCreate ? <NewCandidateAction href={toHref("candidates.new")} /> : undefined
+        }
+      />
+
+      <div className="mt-4">
+        {view === "cards" ? (
+          <CandidateCardGrid
+            rows={rows}
+            isLoading={candidatesQuery.isLoading || applicationsQuery.isLoading}
+            error={candidatesQuery.error}
+            onRetry={() => void candidatesQuery.refetch()}
+            showBde={!isOwnScope}
+            status={{ tone: (c) => STATUS_TONE[c.status], label: (c) => STATUS_LABEL[c.status] }}
+            toolbar={toolbar}
+          />
+        ) : (
+        <DataTable
+          columns={columns}
+          data={rows}
+          getRowId={(r) => r.candidate.id}
+          isLoading={candidatesQuery.isLoading}
+          error={candidatesQuery.error as Error | null}
+          onRetry={() => void candidatesQuery.refetch()}
+          onRowClick={(r) => router.push(toHref("candidates.detail", { id: r.candidate.id }))}
+          searchPlaceholder="Search candidates…"
+          storageKey="candidates-list"
+          pagination
+          pageSize={15}
+          toolbarActions={toolbar}
+          toolbarPlacement="outside"
+        />
+        )}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * New candidate — or, while the firm has no active manager, the same control disabled with the reason (07 Q40: every
+ * candidate has a manager; docs/04 §0). The candidate limit never blocks adding one, only assigning a BDE (Q45).
+ */
+function NewCandidateAction({ href }: { href: string }) {
+  const teamQuery = useTeam();
+  const reason = teamQuery.data && !teamQuery.data.some((user) => user.isActive && isManager(user)) ? NO_MANAGER_REASON : null;
+  if (reason === null) {
+    return (
+      <Button asChild>
+        <Link href={href}><Plus size={14} aria-hidden />New candidate</Link>
+      </Button>
+    );
+  }
+  return (
+    <>
+      <span id="new-candidate-blocked" className="text-sm text-[var(--color-text-2)]">{reason}</span>
+      <Button disabled aria-describedby="new-candidate-blocked"><Plus size={14} aria-hidden />New candidate</Button>
+    </>
+  );
+}

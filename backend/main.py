@@ -1,0 +1,1384 @@
+"""FastAPI entry point for JobNavigator."""
+import logging
+from contextlib import asynccontextmanager
+from typing import Annotated
+
+from fastapi import Depends, FastAPI, Query, Request, HTTPException
+from fastapi.responses import JSONResponse
+from fastapi.middleware.cors import CORSMiddleware
+
+from backend.db_schema import check_schema_at_head
+from backend.models.db import SessionLocal, Setting, JobRun, engine
+from backend import statement_timeout
+from backend.seed import run_seeds
+from backend.auth.access import enforce as enforce_access
+from backend.auth import throttle
+from backend.body_limit import BodySizeLimit
+from backend.auth.scoping import reader_firm_id, scoped, scoped_jobs
+from backend.config import ALLOWED_ORIGINS, TELEGRAM_BOT_TOKEN
+from backend.job_monitor import launch_background, JobAlreadyRunningError, get_all_running, is_running, _get_running_by_job_type, cleanup_stale_runs, sanitize_run_error
+
+from backend.api.routes_settings import router as settings_router
+from backend.api.routes_jobs import router as jobs_router
+from backend.api.routes_applications import router as applications_router
+from backend.api.routes_companies import router as companies_router
+from backend.api.routes_searches import router as searches_router
+from backend.api.routes_resumes import router as resumes_router
+from backend.api.routes_persona import router as persona_router
+from backend.api.routes_cover_letters import router as cover_letters_router
+from backend.api.routes_linkedin import router as linkedin_router
+from backend.api.routes_autofill import router as autofill_router
+from backend.api.routes_llm import router as llm_router
+from backend.api.routes_auth import router as auth_router
+from backend.api.routes_admin import router as admin_router
+from backend.api.routes_firms import router as firms_router
+from backend.api.routes_invites import router as invites_router
+from backend.api.routes_team import router as team_router
+from backend.api.routes_candidates import router as candidates_router
+from backend.api.routes_ledger import router as ledger_router
+from backend.api.routes_support import router as support_router
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger("jobnavigator")
+
+# httpx logs every request URL at INFO, and the Telegram API carries the bot token in
+# the path — so each alert wrote the token into the container log in cleartext
+# (R4-T5-03). The app logs its own outcomes for every outbound call it cares about.
+for _noisy in ("httpx", "httpcore"):
+    logging.getLogger(_noisy).setLevel(logging.WARNING)
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Startup: check the schema, seed data, start scheduler. The schema itself is built by Alembic
+    before this process starts (backend/scripts/db_upgrade.py); deploy exactly one worker (docs/integration/07)."""
+    logger.info("Starting JobNavigator backend...")
+    check_schema_at_head()
+    run_seeds()
+
+    # Clean up stale job runs from previous process
+    cleanup_stale_runs()
+
+    # Start scheduler
+    from backend.scheduler import scheduler, configure_scheduler
+    configure_scheduler()
+    scheduler.start()
+    logger.info("Database initialized, seeded, scheduler started.")
+
+    # Warm the OpenRouter live-pricing cache used for LLM cost logging (non-fatal).
+    try:
+        from backend.analyzer.llm_cost import refresh_openrouter_prices
+        await refresh_openrouter_prices(force=True)
+    except Exception as e:
+        logger.warning(f"OpenRouter price warmup failed: {e}")
+
+    yield
+
+    scheduler.shutdown()
+    logger.info("Shutting down JobNavigator backend...")
+
+
+OPENAPI_TAGS = [
+    {"name": "triggers", "description": "Manual trigger endpoints - run scrapes, analysis, email checks, etc. on demand"},
+    {"name": "scheduler", "description": "View scheduled jobs and activity log"},
+    {"name": "stats", "description": "Aggregate statistics and scrape history"},
+    {"name": "settings", "description": "Global settings (key-value store)"},
+    {"name": "searches", "description": "Search configurations for JobSpy board scraping"},
+    {"name": "companies", "description": "Company management - scrape URLs, Resume selection, H-1B data, filters"},
+    {"name": "jobs", "description": "Job listings discovered by scrapers"},
+    {"name": "applications", "description": "Job applications tracked by Chrome extension and email monitor"},
+    {"name": "telegram", "description": "Telegram bot webhook and test endpoints"},
+    {"name": "monitor", "description": "Job execution monitoring — active runs, run history"},
+    {"name": "system", "description": "Health check and system info"},
+]
+
+APP_VERSION = "2.2.0"  # released version; shown in Settings and on /health
+
+app = FastAPI(
+    title="JobNavigator API",
+    version=APP_VERSION,
+    description=(
+        "Personal job hunt automation system. Scrapes job boards and career pages, "
+        "scores jobs against resumes using Claude API, monitors Gmail for responses, "
+        "sends Telegram notifications.\n\n"
+        "**Auth:** the `bq_session` cookie from `POST /api/auth/sign-in`. Who may call each endpoint is "
+        "set in `backend/auth/access.py`; an endpoint missing there is refused."
+    ),
+    openapi_tags=OPENAPI_TAGS,
+    lifespan=lifespan,
+)
+
+# CORS — allow dashboard frontend (configurable via ALLOWED_ORIGINS env var)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=ALLOWED_ORIGINS,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+
+# ── DB pool saturation and slow queries → 503, fast ──────────────────────────
+# The engine's pool_timeout is short (5 s) so a drained pool fails instead of
+# hanging, and a query past its statement timeout is cancelled by Postgres
+# (backend/statement_timeout.py). Both answer the same way: a 503 with
+# Retry-After, never a long stall or a stack trace.
+from sqlalchemy.exc import OperationalError as _OperationalError, TimeoutError as _PoolTimeout
+
+statement_timeout.install(engine)
+
+
+# ── Per-user rate limit (docs/team/uzair.md §1) ──────────────────────────────
+# Registered before enforce_access so it runs inside it (the middleware added first runs innermost): by then
+# request.state.principal is set for a signed-in request. Signed-out requests have no principal and pass through.
+@app.middleware("http")
+async def limit_per_user(request: Request, call_next):
+    principal = getattr(request.state, "principal", None)
+    if principal is not None:
+        try:
+            throttle.check_user(principal)
+        except HTTPException as exc:
+            return JSONResponse(status_code=exc.status_code, content={"detail": exc.detail}, headers=exc.headers)
+    return await call_next(request)
+
+
+# ── Sessions and access (07 Q37, Q38) ────────────────────────────────────────
+# Every route is classified in backend/auth/access.py; an unclassified one is refused.
+app.middleware("http")(enforce_access)
+
+
+# ── Request body size (docs/team/uzair.md §1) ────────────────────────────────
+# Added after enforce_access, so it runs before it: an oversized request is refused (413) before the session is
+# looked up.
+app.add_middleware(BodySizeLimit)
+
+
+# ── Statement timeout for web requests (docs/team/uzair.md §1) ───────────────
+# Added last, so it runs first: every query of the request, the session lookup included, gets the web limit.
+app.add_middleware(statement_timeout.WebRequestMarker)
+
+
+# ── Routes ───────────────────────────────────────────────────────────────────
+app.include_router(auth_router, prefix="/api")
+app.include_router(admin_router, prefix="/api")
+app.include_router(firms_router, prefix="/api")
+app.include_router(invites_router, prefix="/api")
+app.include_router(team_router, prefix="/api")
+app.include_router(candidates_router, prefix="/api")
+app.include_router(ledger_router, prefix="/api")
+app.include_router(support_router, prefix="/api")
+app.include_router(settings_router, prefix="/api")
+app.include_router(jobs_router, prefix="/api")
+app.include_router(applications_router, prefix="/api")
+app.include_router(companies_router, prefix="/api")
+app.include_router(searches_router, prefix="/api")
+app.include_router(resumes_router, prefix="/api")
+app.include_router(persona_router, prefix="/api")
+app.include_router(cover_letters_router, prefix="/api")
+app.include_router(linkedin_router, prefix="/api")
+app.include_router(autofill_router, prefix="/api")
+app.include_router(llm_router, prefix="/api")
+
+
+# A malformed UUID in a path (/api/jobs/abc) makes Postgres raise DataError deep in
+# the query; without this every id route answers 500 instead of 404.
+from sqlalchemy.exc import DataError as _SADataError
+
+
+@app.exception_handler(_SADataError)
+async def _bad_uuid_to_404(request: Request, exc: _SADataError):
+    if "invalid input syntax for type uuid" in str(exc.orig or exc):
+        return JSONResponse(status_code=404, content={"detail": "Not found"})
+    logger.exception("Database DataError on %s %s", request.method, request.url.path)
+    return JSONResponse(status_code=500, content={"detail": "Internal server error"})
+
+
+@app.exception_handler(_PoolTimeout)
+async def _pool_timeout_to_503(request: Request, exc: _PoolTimeout):
+    """A handler that could not get a connection answers 503, not 500."""
+    logger.warning("DB pool exhausted on %s %s", request.method, request.url.path)
+    return statement_timeout.busy_response()
+
+
+@app.exception_handler(_OperationalError)
+async def _statement_timeout_to_503(request: Request, exc: _OperationalError):
+    """A query cancelled at its statement timeout answers 503; any other OperationalError stays a 500."""
+    if not statement_timeout.is_statement_timeout(exc):
+        raise exc
+    logger.warning("Query timed out on %s %s: %s", request.method, request.url.path, exc.statement)
+    return statement_timeout.busy_response()
+
+
+@app.get("/health", tags=["system"], summary="Health check")
+def health_check():
+    """Returns OK if the backend is running.
+
+    Deliberately touches no database: it is the one endpoint that must answer
+    while the pool is drained, and it is in _PUBLIC_PREFIXES so the auth
+    middleware's settings read is skipped too.
+    """
+    return {"status": "ok", "service": "JobNavigator", "version": APP_VERSION}
+
+
+async def _tracer_click_and_redirect(token: str, request: Request):
+    """Log the click (best-effort) and 302 to the link's destination; shared by both link shapes (path /cv/{token} and param /?cv={token})."""
+    import re
+    import hashlib
+    from backend.models.db import TracerLink, TracerClickEvent
+
+    db = SessionLocal()
+    try:
+        link = db.query(TracerLink).filter(TracerLink.token == token, TracerLink.is_active == True).first()
+        if not link:
+            raise HTTPException(404, "Link not found")
+
+        ua = (request.headers.get("user-agent") or "").lower()
+        device_type = "mobile" if any(m in ua for m in ("mobile", "android", "iphone", "ipad")) else \
+                      "tablet" if "tablet" in ua else "desktop"
+        ua_family = "chrome" if "chrome" in ua and "edge" not in ua else \
+                    "firefox" if "firefox" in ua else \
+                    "safari" if "safari" in ua and "chrome" not in ua else \
+                    "edge" if "edge" in ua else "unknown"
+        os_family = "windows" if "windows" in ua else \
+                    "macos" if "macintosh" in ua else \
+                    "ios" if any(x in ua for x in ("iphone", "ipad")) else \
+                    "android" if "android" in ua else \
+                    "linux" if "linux" in ua else "unknown"
+
+        bot_pattern = re.compile(
+            r'\b(bot|crawler|spider|preview|scanner|headless|curl|wget|'
+            r'slackbot|discordbot|facebookexternalhit|whatsapp|'
+            r'skypeuripreview|linkedinbot|googleimageproxy)\b', re.I
+        )
+        is_bot = bool(bot_pattern.search(request.headers.get("user-agent") or ""))
+
+        ip = request.client.host if request.client else None
+        ip_hash = None
+        if ip:
+            parts = ip.split(".")
+            if len(parts) == 4:
+                prefix = f"{parts[0]}.{parts[1]}.{parts[2]}.0/24"
+            else:
+                prefix = ip
+            ip_hash = hashlib.sha256(prefix.encode()).hexdigest()
+
+        referrer = request.headers.get("referer")
+        referrer_host = None
+        if referrer:
+            try:
+                from urllib.parse import urlparse
+                referrer_host = urlparse(referrer).hostname
+            except Exception:
+                pass
+
+        # Capture destination before the click-log write so redirect still happens
+        # even if the click-log commit fails (best-effort logging).
+        destination = link.destination_url
+
+        try:
+            event = TracerClickEvent(
+                firm_id=link.firm_id,
+                tracer_link_id=link.id,
+                device_type=device_type,
+                ua_family=ua_family,
+                os_family=os_family,
+                referrer_host=referrer_host,
+                ip_hash=ip_hash,
+                is_likely_bot=is_bot,
+            )
+            db.add(event)
+            db.commit()
+        except Exception as e:
+            logger.exception("Tracer click log failed for token=%s: %s", token, e)
+            # Rollback so the session isn't left in an error state.
+            try:
+                db.rollback()
+            except Exception:
+                pass
+    finally:
+        db.close()
+
+    from fastapi.responses import RedirectResponse
+    return RedirectResponse(url=destination, status_code=302)
+
+
+@app.get("/cv/{token}", tags=["tracer"], summary="Tracer link redirect (path style)")
+async def tracer_redirect(token: str, request: Request):
+    """Path-style tracer link: /cv/{token}. Logs click, then 302 redirects."""
+    return await _tracer_click_and_redirect(token, request)
+
+
+@app.get("/", include_in_schema=False)
+async def tracer_redirect_param(request: Request):
+    """Param-style tracer link: /?cv={token}. Only tracer requests reach the backend
+    root (Caddy routes bare / to the frontend); without ?cv it's a 404."""
+    token = request.query_params.get("cv")
+    if not token:
+        raise HTTPException(404, "Not found")
+    return await _tracer_click_and_redirect(token, request)
+
+
+# ── Trigger endpoints (non-blocking, return 202) ────────────────────────────
+@app.post("/api/scrape/run-all", tags=["triggers"], summary="Run all scrapes", status_code=202)
+async def trigger_all_scrapes():
+    """Run all active JobSpy keyword searches + all active Playwright career page scrapes.
+    Returns immediately with a run_id. Check progress via /api/monitor/active.
+    """
+    async def _do():
+        from datetime import datetime as _dt, timezone as _tz
+        from backend.scheduler import _scrape_summary
+        started = _dt.now(_tz.utc)
+        from backend.scraper.orchestrator import run_all as run_all_searches
+        outcome = await run_all_searches(force=True) or {}
+        from backend.analyzer.cv_scorer import analyze_unscored_jobs
+        await analyze_unscored_jobs()
+        summary = _scrape_summary(started)
+        # Name what did not run, so a company missing from the sweep is visible in
+        # the run history instead of only in the container log.
+        skipped = ((outcome.get("companies") or {}).get("skipped")) or []
+        if skipped:
+            shown = ", ".join(f"{s['name']} ({s['reason']})" for s in skipped[:4])
+            if len(skipped) > 4:
+                shown += f", +{len(skipped) - 4} more"
+            summary += f" - {len(skipped)} skipped: {shown}"
+        return summary
+
+    try:
+        run_id = launch_background("scrape_all", _do, trigger="manual")
+        return {"run_id": run_id, "status": "running"}
+    except JobAlreadyRunningError as e:
+        logger.info("Duplicate trigger rejected for job_type=%s", e.job_type)
+        return JSONResponse(
+            status_code=409,
+            content={"detail": f"{e.job_type} is already running"},
+        )
+
+
+@app.post("/api/email/check-now", tags=["triggers"], summary="Check Gmail now", status_code=202)
+async def trigger_email_check():
+    """Poll Gmail for new emails. Returns immediately with a run_id."""
+    async def _do():
+        from datetime import datetime as _dt, timezone as _tz
+        from backend.scheduler import _activity_summary
+        started = _dt.now(_tz.utc)
+        from backend.email_monitor.gmail_client import check_emails
+        await check_emails()
+        return _activity_summary(started, "email", "reply", "replies") or "No new replies"
+
+    try:
+        run_id = launch_background("email_check", _do, trigger="manual")
+        return {"run_id": run_id, "status": "running"}
+    except JobAlreadyRunningError as e:
+        logger.info("Duplicate trigger rejected for job_type=%s", e.job_type)
+        return JSONResponse(
+            status_code=409,
+            content={"detail": f"{e.job_type} is already running"},
+        )
+
+
+@app.post("/api/h1b/refresh", tags=["triggers"], summary="Refresh H-1B data", status_code=202)
+async def trigger_h1b_refresh():
+    """Scrape MyVisaJobs.com for all active companies. Returns immediately with a run_id."""
+    async def _do():
+        from datetime import datetime as _dt, timezone as _tz
+        from backend.models.db import VisaCache
+        started = _dt.now(_tz.utc)
+        from backend.analyzer.h1b_checker import refresh_all_h1b
+        await refresh_all_h1b()
+        db = SessionLocal()
+        try:
+            n = db.query(VisaCache).filter(VisaCache.fetched_at >= started).count()
+            return f"{n} compan{'y' if n == 1 else 'ies'} refreshed"
+        finally:
+            db.close()
+
+    try:
+        run_id = launch_background("h1b_refresh", _do, trigger="manual")
+        return {"run_id": run_id, "status": "running"}
+    except JobAlreadyRunningError as e:
+        logger.info("Duplicate trigger rejected for job_type=%s", e.job_type)
+        return JSONResponse(
+            status_code=409,
+            content={"detail": f"{e.job_type} is already running"},
+        )
+
+
+@app.post("/api/analyze/{job_id}", tags=["triggers"], summary="Analyze a single job", status_code=202)
+async def trigger_analysis(job_id: str, depth: str = "full", body: dict = None, firm_id=Depends(reader_firm_id)):
+    """Re-run resume scoring for a specific job. depth: 'light' or 'full' (default)."""
+    import uuid as _uuid
+    # uuid.UUID(job_id) used to be evaluated inside the launch_background(...)
+    # call, so a malformed id raised ValueError instead of answering the way
+    # every other id route does (R4-T1-23).
+    try:
+        target_job_uuid = _uuid.UUID(job_id)
+    except (ValueError, AttributeError, TypeError):
+        raise HTTPException(status_code=404, detail="Not found")
+
+    # JobRun.target_job_id is a FK to jobs.id, so a well-formed id for a job that does
+    # not exist raised ForeignKeyViolation inside launch_background — a bare 500 plus a
+    # full INSERT traceback in the log (R4-T5-09). Look it up first, like
+    # /api/scrape/company/{id} does.
+    from backend.models.db import Job as _Job
+    cv_ids = (body or {}).get("cv_ids")
+    db = SessionLocal()
+    try:
+        job_row = scoped_jobs(db, firm_id).filter(_Job.id == target_job_uuid).first()
+        if not job_row:
+            raise HTTPException(status_code=404, detail="Job not found")
+        # Names the run will write into cv_scores, resolved while the session is open.
+        try:
+            from backend.analyzer.cv_scorer import resolve_score_resume_names
+            resume_names = resolve_score_resume_names(db, job=job_row, cv_ids=cv_ids, firm_id=firm_id)
+        except Exception:
+            resume_names = []
+    finally:
+        db.close()
+
+    async def _do():
+        from backend.analyzer.cv_scorer import score_single_job
+        # Forwarded so the run's summary reaches JobRun.result_summary.
+        return await score_single_job(job_id, cv_ids=cv_ids, depth=depth, firm_id=firm_id)
+
+    # Include cv_ids in scope_key so scoring the same job with different CVs doesn't conflict
+    scope = f"{job_id}:{','.join(sorted(cv_ids))}" if cv_ids else job_id
+    try:
+        run_id = launch_background(
+            "analyze_job", _do, trigger="manual", scope_key=scope,
+            target_job_id=target_job_uuid,
+            meta={"resume_names": resume_names, "depth": depth},
+        )
+        return {"run_id": run_id, "status": "running", "job_id": job_id}
+    except JobAlreadyRunningError as e:
+        logger.info("Duplicate trigger rejected for job_type=%s", e.job_type)
+        return JSONResponse(
+            status_code=409,
+            content={"detail": f"{e.job_type} is already running"},
+        )
+
+
+@app.post("/api/db/cleanup", tags=["triggers"], summary="Database cleanup", status_code=202)
+async def trigger_job_cleanup():
+    """Delete old skipped/ignored jobs. Returns immediately with a run_id."""
+    async def _do():
+        from backend.models.db import Job
+        from datetime import timedelta, timezone as tz
+        from datetime import datetime as dt
+        from backend.scheduler import get_setting
+        db = SessionLocal()
+        try:
+            archive_days = int(get_setting(db, "job_archive_after_days", "0"))
+            if archive_days <= 0:
+                return "Disabled (job_archive_after_days = 0)"
+            cutoff = dt.now(tz.utc) - timedelta(days=archive_days)
+            old_skipped = db.query(Job).filter(Job.status == "skip", Job.discovered_at < cutoff).all()
+            count = len(old_skipped)
+            for job in old_skipped:
+                db.delete(job)
+            db.commit()
+            from backend.activity import log_activity
+            log_activity("scrape", f"Job cleanup: deleted {count} old skipped jobs (>{archive_days} days)")
+            return f"{count} skipped job{'' if count == 1 else 's'} deleted (>{archive_days}d old)"
+        finally:
+            db.close()
+
+    try:
+        run_id = launch_background("job_cleanup", _do, trigger="manual")
+        return {"run_id": run_id, "status": "running"}
+    except JobAlreadyRunningError as e:
+        logger.info("Duplicate trigger rejected for job_type=%s", e.job_type)
+        return JSONResponse(
+            status_code=409,
+            content={"detail": f"{e.job_type} is already running"},
+        )
+
+
+@app.post("/api/auto-reject/run", tags=["triggers"], summary="Run auto-reject now", status_code=202)
+async def trigger_auto_reject():
+    """Run auto-reject on stale applications. Returns immediately with a run_id."""
+    async def _do():
+        from backend.models.db import Application, record_transition
+        from backend.scheduler import get_setting
+        from datetime import timedelta, timezone as tz
+        from datetime import datetime as dt
+        db = SessionLocal()
+        try:
+            days = int(get_setting(db, "auto_reject_after_days", "0"))
+            if days <= 0:
+                return "Disabled (auto_reject_after_days = 0)"
+            cutoff = dt.now(tz.utc) - timedelta(days=days)
+            keep = ["rejected", "offer"]
+            stale = db.query(Application).filter(
+                Application.candidate_id.is_(None),
+                ~Application.status.in_(keep),
+                Application.applied_at < cutoff,
+            ).all()
+            count = 0
+            for app in stale:
+                record_transition(app, "rejected", "scheduler")
+                count += 1
+            if count:
+                db.commit()
+            return f"{count} application{'' if count == 1 else 's'} auto-rejected (>{days}d silent)"
+        finally:
+            db.close()
+
+    try:
+        run_id = launch_background("auto_reject", _do, trigger="manual")
+        return {"run_id": run_id, "status": "running"}
+    except JobAlreadyRunningError as e:
+        logger.info("Duplicate trigger rejected for job_type=%s", e.job_type)
+        return JSONResponse(
+            status_code=409,
+            content={"detail": f"{e.job_type} is already running"},
+        )
+
+
+@app.post("/api/jobs/backfill-descriptions", tags=["triggers"], summary="Fetch descriptions for jobs missing them", status_code=202)
+async def trigger_backfill_descriptions():
+    """Fetch job descriptions for new/saved/applied jobs that have a URL but no description."""
+    async def _do():
+        from backend.models.db import Job
+        from backend.scraper.ats._descriptions import _fetch_job_description
+        from backend.analyzer.salary_extractor import apply_salary_to_job
+        db = SessionLocal()
+        try:
+            jobs = db.query(Job).filter(
+                # "applied" is in the set because a hand-logged job (Log application)
+                # lands there directly and needs the same repair.
+                Job.status.in_(["new", "saved", "applied"]),
+                Job.url != None,
+                (Job.description == None) | (Job.description == ""),
+            ).order_by(Job.discovered_at.desc()).limit(50).all()
+
+            logger.info(f"Backfill descriptions: {len(jobs)} jobs to process")
+            import asyncio
+            count = 0
+            for job in jobs:
+                try:
+                    desc = await _fetch_job_description(job.url)
+                    if desc and len(desc) > 50:
+                        job.description = desc
+                        apply_salary_to_job(job)
+                        from backend.analyzer.work_arrangement import apply_arrangement_to_job
+                        apply_arrangement_to_job(job)
+                        count += 1
+                        db.commit()
+                        logger.info(f"Backfilled description for '{job.title}' ({len(desc)} chars)")
+                except Exception as e:
+                    logger.warning(f"Failed to fetch description for '{job.title}': {e}")
+                await asyncio.sleep(1)
+
+            logger.info(f"Backfill descriptions: done, {count}/{len(jobs)} updated")
+        finally:
+            db.close()
+
+    try:
+        run_id = launch_background("backfill_descriptions", _do, trigger="manual")
+        return {"run_id": run_id, "status": "running"}
+    except JobAlreadyRunningError as e:
+        logger.info("Duplicate trigger rejected for job_type=%s", e.job_type)
+        return JSONResponse(
+            status_code=409,
+            content={"detail": f"{e.job_type} is already running"},
+        )
+
+
+@app.post("/api/db/backup", tags=["triggers"], summary="Run database backup", status_code=202)
+async def trigger_db_backup():
+    """Run a database backup immediately. Returns immediately with a run_id."""
+    async def _do():
+        import subprocess, glob, os
+        from datetime import datetime
+        from backend.config import DATABASE_URL
+        from urllib.parse import urlparse
+
+        backup_dir = "/app/backups"
+        os.makedirs(backup_dir, exist_ok=True)
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        backup_file = f"{backup_dir}/jobnavigator_{timestamp}.sql"
+
+        parsed = urlparse(DATABASE_URL)
+        env = os.environ.copy()
+        env["PGPASSWORD"] = parsed.password or ""
+
+        result = subprocess.run(
+            ["pg_dump", "-h", parsed.hostname, "-p", str(parsed.port or 5432),
+             "-U", parsed.username, "-d", parsed.path.lstrip("/"),
+             "-f", backup_file],
+            env=env, capture_output=True, text=True, timeout=300
+        )
+        if result.returncode != 0:
+            raise RuntimeError(f"pg_dump failed: {result.stderr}")
+
+        # Keep only last 5 backups
+        backups = sorted(glob.glob(f"{backup_dir}/jobnavigator_*.sql"))
+        pruned = 0
+        while len(backups) > 5:
+            os.remove(backups.pop(0))
+            pruned += 1
+
+        size_mb = os.path.getsize(backup_file) / (1024 * 1024)
+        return f"Snapshot {size_mb:.0f} MB -> {os.path.basename(backup_file)}" + (f" - {pruned} old pruned" if pruned else "")
+
+    try:
+        run_id = launch_background("db_backup", _do, trigger="manual")
+        return {"run_id": run_id, "status": "running"}
+    except JobAlreadyRunningError as e:
+        logger.info("Duplicate trigger rejected for job_type=%s", e.job_type)
+        return JSONResponse(
+            status_code=409,
+            content={"detail": f"{e.job_type} is already running"},
+        )
+
+
+@app.post("/api/telegram/digest", tags=["triggers"], summary="Send Telegram digest", status_code=202)
+async def trigger_digest():
+    """Send the daily Telegram digest immediately. Returns immediately with a run_id."""
+    async def _do():
+        from datetime import datetime as _dt, timezone as _tz
+        from backend.scheduler import _activity_summary
+        started = _dt.now(_tz.utc)
+        from backend.notifier.telegram import send_digest
+        await send_digest()
+        return _activity_summary(started, "telegram", "alert") or "Digest sent"
+
+    try:
+        run_id = launch_background("daily_digest", _do, trigger="manual")
+        return {"run_id": run_id, "status": "running"}
+    except JobAlreadyRunningError as e:
+        logger.info("Duplicate trigger rejected for job_type=%s", e.job_type)
+        return JSONResponse(
+            status_code=409,
+            content={"detail": f"{e.job_type} is already running"},
+        )
+
+
+@app.post("/api/scrape/company/{company_id}", tags=["triggers"], summary="Scrape a single company", status_code=202)
+async def trigger_company_scrape(company_id: str, auto_score: bool = None):
+    """Run Playwright career page scrape for one company. Returns immediately with a run_id.
+    auto_score: True/False override, null=use company.auto_scoring_depth setting.
+    """
+    from backend.models.db import Company
+    db = SessionLocal()
+    try:
+        company = db.query(Company).filter(Company.id == company_id).first()
+        if not company:
+            raise HTTPException(status_code=404, detail="Company not found")
+        company_name = company.name
+    finally:
+        db.close()
+
+    async def _do():
+        from backend.models.db import Company as C
+        from backend.scraper.sources.company_pages import (
+            scrape_single_career_page, record_company_scrape_log,
+        )
+        db2 = SessionLocal()
+        try:
+            c = db2.query(C).filter(C.id == company_id).first()
+            if c:
+                result = await scrape_single_career_page(c)
+                # Same audit row the batch path writes, so a manual run also shows
+                # up in /api/scrape-log, is_warning and /health/entities.
+                record_company_scrape_log(c.id, c.name, result or {}, db=db2)
+                should_score = auto_score if auto_score is not None else (c.auto_scoring_depth in ("light", "full"))
+                if should_score and result and result.get("new_jobs", 0) > 0:
+                    from backend.analyzer.cv_scorer import analyze_unscored_jobs
+                    await analyze_unscored_jobs(status="new")
+                if result:
+                    return f"{c.name} - {result.get('jobs_found', 0)} seen, +{result.get('new_jobs', 0)} new"
+        finally:
+            db2.close()
+
+    try:
+        run_id = launch_background(
+            "company_scrape", _do, trigger="manual",
+            scope_key=company_id, company_id=company_id,
+            meta={"company": company_name},
+        )
+        return {"run_id": run_id, "status": "running", "company": company_name}
+    except JobAlreadyRunningError as e:
+        logger.info("Duplicate trigger rejected for job_type=%s", e.job_type)
+        return JSONResponse(
+            status_code=409,
+            content={"detail": f"{e.job_type} is already running"},
+        )
+
+
+@app.post("/api/telegram/webhook", tags=["telegram"], summary="Telegram webhook")
+async def telegram_webhook(update: dict, request: Request):
+    """Handle a Telegram webhook update (callback queries from inline buttons); validates X-Telegram-Bot-Api-Secret-Token against the telegram_webhook_secret setting."""
+    import hmac as _hmac
+    db = SessionLocal()
+    try:
+        row = db.query(Setting).filter(Setting.key == "telegram_webhook_secret").first()
+        expected = (row.value or "").strip() if row else ""
+    finally:
+        db.close()
+    if not expected:
+        # Misconfigured — never accept anonymous webhook traffic. The seed step
+        # populates this on first run; an empty value means someone cleared it.
+        logger.warning("telegram_webhook rejected: webhook secret not configured")
+        raise HTTPException(status_code=503, detail="Telegram webhook secret not configured")
+    received = request.headers.get("X-Telegram-Bot-Api-Secret-Token", "")
+    if not received or not _hmac.compare_digest(received, expected):
+        logger.warning("telegram_webhook rejected: invalid secret token")
+        raise HTTPException(status_code=401, detail="Invalid webhook secret")
+
+    from backend.notifier.telegram import handle_callback
+
+    callback_query = update.get("callback_query")
+    if callback_query:
+        data = callback_query.get("data", "")
+        message_id = callback_query.get("message", {}).get("message_id")
+        result = await handle_callback(data, message_id)
+
+        # Answer callback to remove loading state
+        callback_id = callback_query.get("id")
+        if callback_id and TELEGRAM_BOT_TOKEN:
+            import httpx
+            async with httpx.AsyncClient(timeout=10) as client:
+                await client.post(
+                    f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/answerCallbackQuery",
+                    json={"callback_query_id": callback_id, "text": result},
+                )
+
+    return {"ok": True}
+
+
+@app.post("/api/telegram/register-webhook", tags=["telegram"], summary="Register Telegram webhook")
+async def telegram_register_webhook(body: dict):
+    """Register {public_url}/api/telegram/webhook with Telegram, signed with telegram_webhook_secret; public_url must be HTTPS."""
+    from backend.notifier.telegram import register_webhook
+    public_url = (body.get("public_url") or "").strip().rstrip("/")
+    if not public_url.startswith("https://"):
+        raise HTTPException(status_code=400, detail="public_url must start with https://")
+    full_url = f"{public_url}/api/telegram/webhook"
+    result = await register_webhook(full_url)
+    return result
+
+
+@app.post("/api/telegram/rotate-webhook-secret", tags=["telegram"], summary="Rotate Telegram webhook secret")
+async def telegram_rotate_webhook_secret():
+    """Regenerate `telegram_webhook_secret` and return the new value. After
+    rotating, call POST /api/telegram/register-webhook to re-register with
+    Telegram so the next callback carries the new header value.
+    """
+    from backend.notifier.telegram import rotate_webhook_secret
+    new_value = rotate_webhook_secret()
+    return {"ok": True, "webhook_secret": new_value}
+
+
+@app.post("/api/telegram/test", tags=["telegram"], summary="Send test message", status_code=202)
+async def telegram_test():
+    """Send a test message to the configured Telegram chat. Returns immediately with a run_id."""
+    async def _do():
+        from backend.notifier.telegram import send_test_message
+        await send_test_message()
+
+    try:
+        run_id = launch_background("telegram_test", _do, trigger="manual")
+        return {"run_id": run_id, "status": "running"}
+    except JobAlreadyRunningError as e:
+        logger.info("Duplicate trigger rejected for job_type=%s", e.job_type)
+        return JSONResponse(
+            status_code=409,
+            content={"detail": f"{e.job_type} is already running"},
+        )
+
+
+@app.get("/api/scheduler/jobs", tags=["scheduler"], summary="List scheduled jobs")
+def get_scheduler_jobs():
+    """Return all scheduler jobs with their schedule, next run time (UTC), trigger URL, and running state."""
+    from backend.scheduler import scheduler
+    from backend.models.db import Company
+
+    # Map scheduler job IDs to (trigger_url, job_type for monitor)
+    job_map = {
+        "scrape_all": ("/scrape/run-all", "scrape_all"),
+        "email_check": ("/email/check-now", "email_check"),
+        "daily_digest": ("/telegram/digest", "daily_digest"),
+        "h1b_refresh": ("/h1b/refresh", "h1b_refresh"),
+        "db_backup": ("/db/backup", "db_backup"),
+        "job_cleanup": ("/db/cleanup", "job_cleanup"),
+        "auto_reject": ("/auto-reject/run", "auto_reject"),
+    }
+
+    # Human-friendly display names for the core scheduler jobs.
+    display_names = {
+        "scrape_all": "Scrape all searches & companies",
+        "email_check": "Check Gmail for replies",
+        "daily_digest": "Send daily Telegram digest",
+        "h1b_refresh": "Refresh H-1B / LCA data",
+        "db_backup": "Back up database (pg_dump)",
+        "job_cleanup": "Clean up stale skipped jobs",
+        "auto_reject": "Auto-reject ghosted applications",
+    }
+
+    jobs = scheduler.get_jobs()
+    result = []
+    for job in jobs:
+        trigger = job.trigger
+        if hasattr(trigger, 'interval'):
+            schedule = f"Every {int(trigger.interval.total_seconds() / 60)} min"
+        elif hasattr(trigger, 'fields'):
+            fields = {f.name: str(f) for f in trigger.fields}
+            minute = fields.get('minute', '*')
+            hour = fields.get('hour', '*')
+            day = fields.get('day', '*')
+            month = fields.get('month', '*')
+            dow = fields.get('day_of_week', '*')
+            schedule = f"{minute} {hour} {day} {month} {dow}"
+        else:
+            schedule = str(trigger)
+
+        trigger_url, job_type = job_map.get(job.id, (None, None))
+        running_info = _get_running_by_job_type(job_type) if job_type else None
+
+        result.append({
+            "id": job.id,
+            "name": display_names.get(job.id, job.name or job.id),
+            "schedule": schedule,
+            "next_run": job.next_run_time.isoformat() if job.next_run_time else None,
+            "pending": job.pending,
+            "trigger_url": trigger_url,
+            "running": running_info,
+        })
+
+    # Per-search and per-company custom scrape intervals
+    db = SessionLocal()
+    try:
+        from backend.models.db import Search
+        searches = db.query(Search).filter(
+            Search.active == True,
+            Search.run_interval_minutes != None,
+            Search.run_interval_minutes > 0,
+        ).all()
+        for s in searches:
+            next_run = None
+            if s.last_run_at:
+                from datetime import timedelta
+                next_run = (s.last_run_at + timedelta(minutes=s.run_interval_minutes)).isoformat()
+            result.append({
+                "id": f"search_{s.id}",
+                "name": f"Search: {s.name}",
+                "schedule": f"Every {s.run_interval_minutes} min (search override)",
+                "next_run": next_run,
+                "pending": False,
+                "trigger_url": f"/searches/{s.id}/run",
+                "running": None,
+            })
+
+        companies = db.query(Company).filter(
+            Company.active == True,
+            Company.scrape_interval_minutes != None,
+        ).all()
+        for c in companies:
+            next_run = None
+            if c.last_scraped_at:
+                from datetime import timedelta
+                next_run = (c.last_scraped_at + timedelta(minutes=c.scrape_interval_minutes)).isoformat()
+            company_running = is_running("company_scrape", str(c.id))
+            running_info = None
+            if company_running:
+                from datetime import datetime, timezone
+                elapsed = (datetime.now(timezone.utc) - company_running.started_at).total_seconds()
+                running_info = {"run_id": str(company_running.run_id), "elapsed_seconds": round(elapsed, 1)}
+            result.append({
+                "id": f"company_{c.id}",
+                "name": f"Scrape: {c.name}",
+                "schedule": f"Every {c.scrape_interval_minutes} min (company override)",
+                "next_run": next_run,
+                "pending": False,
+                "trigger_url": f"/scrape/company/{c.id}",
+                "running": running_info,
+            })
+    finally:
+        db.close()
+
+    return result
+
+
+# ── Monitor endpoints ────────────────────────────────────────────────────────
+@app.get("/api/monitor/active", tags=["monitor"], summary="Currently running jobs")
+def get_active_jobs():
+    """Return all currently running jobs with elapsed time in seconds."""
+    return get_all_running()
+
+
+@app.get("/api/monitor/in-flight", tags=["monitor"], summary="Per-job active operations")
+def get_in_flight(job_ids: str = None, detail: bool = False):
+    """Return {job_id: [job_types]} for running ops tagged with target_job_id (scheduler-level ops like scrape_all have none, so are omitted); optional job_ids filters by comma-separated UUIDs, and detail=1 returns [{job_type, meta}] entries instead of bare job types."""
+    import backend.job_monitor as mon
+
+    wanted: set[str] | None = None
+    if job_ids:
+        wanted = {s.strip() for s in job_ids.split(",") if s.strip()}
+
+    result: dict[str, list] = {}
+    for r in mon._running.values():
+        if r.target_job_id is None:
+            continue
+        key = str(r.target_job_id)
+        if wanted is not None and key not in wanted:
+            continue
+        entry = {"job_type": r.job_type, "meta": r.meta} if detail else r.job_type
+        result.setdefault(key, []).append(entry)
+
+    return result
+
+
+@app.get("/api/monitor/finished", tags=["monitor"], summary="Recently finished per-job runs")
+def get_finished(job_ids: str = None, since: str = None,
+                 limit: Annotated[int, Query(ge=0, le=1000)] = 200):
+    """Return recently finished (completed/failed) runs for the given jobs, so the dashboard can resolve OK/NOK for an op that just left /monitor/in-flight from the run's actual status rather than job fields."""
+    import uuid as _uuid
+    from datetime import datetime as _dt, timezone as _tz
+
+    wanted = None
+    if job_ids:
+        wanted = []
+        for s in job_ids.split(","):
+            s = s.strip()
+            if not s:
+                continue
+            try:
+                wanted.append(_uuid.UUID(s))
+            except ValueError:
+                continue
+        if not wanted:
+            return []
+
+    # `since` is epoch milliseconds (URL-safe; avoids the '+' in ISO offsets
+    # decoding to a space in a query string). Runs finished at/after it are kept.
+    since_dt = None
+    if since:
+        try:
+            since_dt = _dt.fromtimestamp(int(since) / 1000, tz=_tz.utc)
+        except (ValueError, TypeError, OverflowError):
+            since_dt = None
+
+    def _aware(dt):
+        # Normalize so naive (SQLite) and aware (Postgres) values compare cleanly.
+        return dt.replace(tzinfo=_tz.utc) if dt.tzinfo is None else dt
+
+    db = SessionLocal()
+    try:
+        q = db.query(JobRun).filter(
+            JobRun.status.in_(("completed", "failed")),
+            JobRun.target_job_id.isnot(None),
+        )
+        if wanted is not None:
+            q = q.filter(JobRun.target_job_id.in_(wanted))
+        runs = q.order_by(JobRun.finished_at.desc()).limit(limit).all()
+        return [
+            {
+                "target_job_id": str(r.target_job_id),
+                "job_type": r.job_type,
+                "status": r.status,
+                "finished_at": r.finished_at.isoformat() if r.finished_at else None,
+            }
+            for r in runs
+            if since_dt is None or (r.finished_at is not None and _aware(r.finished_at) >= since_dt)
+        ]
+    finally:
+        db.close()
+
+
+@app.get("/api/monitor/history", tags=["monitor"], summary="Run history")
+def get_run_history(limit: Annotated[int, Query(ge=0, le=1000)] = 30, offset: int = 0,
+                    job_type: str = None, status: str = None):
+    """Return recent job run history, newest first.
+
+    `offset` skips that many rows so the dashboard can page ("Load more").
+    """
+    db = SessionLocal()
+    try:
+        q = db.query(JobRun)
+        if job_type:
+            q = q.filter(JobRun.job_type == job_type)
+        if status:
+            q = q.filter(JobRun.status == status)
+        runs = q.order_by(JobRun.started_at.desc()).offset(max(0, offset)).limit(limit).all()
+        return [
+            {
+                "id": str(r.id),
+                "job_type": r.job_type,
+                "trigger": r.trigger,
+                "status": r.status,
+                "started_at": r.started_at.isoformat() if r.started_at else None,
+                "finished_at": r.finished_at.isoformat() if r.finished_at else None,
+                "duration_seconds": r.duration_seconds,
+                "result_summary": r.result_summary,
+                "error": sanitize_run_error(r.error),
+                "meta": r.meta,
+            }
+            for r in runs
+        ]
+    finally:
+        db.close()
+
+
+@app.get("/api/monitor/run/{run_id}", tags=["monitor"], summary="Single run details")
+def get_run_detail(run_id: str):
+    """Return details for a single job run."""
+    db = SessionLocal()
+    try:
+        r = db.query(JobRun).filter(JobRun.id == run_id).first()
+        if not r:
+            raise HTTPException(status_code=404, detail="Run not found")
+        return {
+            "id": str(r.id),
+            "job_type": r.job_type,
+            "trigger": r.trigger,
+            "status": r.status,
+            "started_at": r.started_at.isoformat() if r.started_at else None,
+            "finished_at": r.finished_at.isoformat() if r.finished_at else None,
+            "duration_seconds": r.duration_seconds,
+            "result_summary": r.result_summary,
+            "error": sanitize_run_error(r.error),
+            "meta": r.meta,
+        }
+    finally:
+        db.close()
+
+
+@app.get("/api/activity-log", tags=["scheduler"], summary="Activity log")
+def get_activity_log(
+    limit: Annotated[int, Query(ge=0, le=1000)] = 50,
+    offset: int = 0,
+    type: str = None,
+    company: str = None,
+):
+    """Recent activity log entries, optionally filtered by exact `type` and case-insensitive `company` substring, paginated with limit/offset."""
+    from backend.models.db import ActivityLog
+    db = SessionLocal()
+    try:
+        q = db.query(ActivityLog)
+        if type:
+            q = q.filter(ActivityLog.type == type)
+        if company:
+            q = q.filter(ActivityLog.company.ilike(f"%{company}%"))
+        logs = q.order_by(ActivityLog.created_at.desc()).offset(max(0, offset)).limit(limit).all()
+        return [
+            {
+                "id": str(log.id),
+                "type": log.type,
+                "message": log.message,
+                "company": log.company,
+                "details": log.details,
+                "created_at": log.created_at.isoformat() if log.created_at else None,
+            }
+            for log in logs
+        ]
+    finally:
+        db.close()
+
+
+@app.get("/api/scrape-log", tags=["stats"], summary="Scrape log history")
+def get_scrape_log(
+    limit: Annotated[int, Query(ge=0, le=1000)] = 50,
+    errors_only: bool = False,
+    warnings_only: bool = False,
+):
+    """Raw scrape run history with per-search/company details, including per-board `source_breakdown`; optionally filtered to errored or 0-result (warning) runs."""
+    from backend.models.db import ScrapeLog
+    db = SessionLocal()
+    try:
+        q = db.query(ScrapeLog)
+        if errors_only:
+            q = q.filter(ScrapeLog.error != None)
+        elif warnings_only:
+            q = q.filter(ScrapeLog.is_warning == True)
+        logs = q.order_by(ScrapeLog.ran_at.desc()).limit(limit).all()
+        return [
+            {
+                "id": str(log.id),
+                "search_id": str(log.search_id) if log.search_id else None,
+                "company_id": str(log.company_id) if log.company_id else None,
+                "source": log.source,
+                "jobs_found": log.jobs_found,
+                "new_jobs": log.new_jobs,
+                "error": log.error,
+                "is_warning": log.is_warning,
+                "duration_seconds": log.duration_seconds,
+                # Per-board {seen, new, error?} — without it a run whose ZipRecruiter
+                # leg 403'd is indistinguishable here from a clean one.
+                "source_breakdown": log.source_breakdown or None,
+                "ran_at": log.ran_at.isoformat() if log.ran_at else None,
+            }
+            for log in logs
+        ]
+    finally:
+        db.close()
+
+
+@app.get("/api/stats/timeline", tags=["stats"], summary="Job discovery timeline")
+def get_stats_timeline(days: Annotated[int, Query(le=3650)] = 30, firm_id=Depends(reader_firm_id)):
+    """Daily job counts for the last N days.
+
+    Only the upper bound is enforced: `days <= 0` is a legal "everything from now
+    on" window that returns an empty series, while an absurd value overflowed
+    `timedelta` and escaped as a bare 500 (R4-T1-08).
+    """
+    from backend.models.db import Job
+    from sqlalchemy import func, cast, Date
+    from datetime import datetime, timedelta, timezone
+
+    db = SessionLocal()
+    try:
+        cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+        rows = scoped_jobs(
+            db, firm_id,
+            cast(Job.discovered_at, Date).label("date"),
+            func.count().label("total"),
+            func.count().filter(Job.status == "new").label("new"),
+            func.count().filter(Job.status == "saved").label("saved"),
+            func.count().filter(Job.status == "applied").label("applied"),
+            func.count().filter(Job.status == "skip").label("skipped"),
+            # 'ignored' = auto-filtered (title/body/H-1B), saved only for dedup — never shown in the feed.
+            func.count().filter(Job.status == "ignored").label("filtered"),
+        ).filter(Job.discovered_at >= cutoff).group_by(
+            cast(Job.discovered_at, Date)
+        ).order_by(cast(Job.discovered_at, Date)).all()
+        return [{
+            "date": str(r.date), "total": r.total,
+            "new": r.new, "saved": r.saved, "applied": r.applied,
+            "skipped": r.skipped, "filtered": r.filtered,
+        } for r in rows]
+    finally:
+        db.close()
+
+
+@app.get("/api/health/entities", tags=["stats"], summary="Companies/searches needing attention")
+def get_failing_entities(window: Annotated[int, Query(ge=1, le=100)] = 3):
+    """Active companies/searches whose last `window` scrapes all errored or returned 0 results (a likely broken/moved ATS or dead URL); acknowledged warnings drop out until a newer run fails again.
+
+    `window` must be at least 1: `window=0` made `all([])` true and reported every
+    active company and search as broken, and a negative one reached `LIMIT -1`
+    (R4-T1-10).
+    """
+    from backend.models.db import ScrapeLog, Company, Search, is_acknowledged
+    from backend.scraper.orchestrator import empty_sources, source_errors, source_label
+    db = SessionLocal()
+    try:
+        def _reason(entity_col, entity_id, acknowledged_at=None):
+            recent = (db.query(ScrapeLog).filter(entity_col == entity_id)
+                      .order_by(ScrapeLog.ran_at.desc()).limit(window).all())
+            # Acknowledging reads healthy until something *newer* than the
+            # acknowledgement goes wrong (compared against the newest run, not "now").
+            if recent and is_acknowledged(recent[0].ran_at, acknowledged_at):
+                return None
+            # One configured board refusing the request is worth flagging on its
+            # own, since the other boards can mask it entirely.
+            if recent:
+                failed = source_errors(recent[0].source_breakdown)
+                if failed:
+                    return " · ".join(
+                        f"{source_label(k)} failed ({e})" for k, e in failed
+                    ) + " on the last run"
+            if len(recent) < window or not all(r.error or r.is_warning for r in recent):
+                return None
+            err = next((r.error for r in recent if r.error), None)
+            if err:
+                return err[:160]
+            # is_warning also covers "one board returned nothing while the others
+            # worked". Two outcomes:
+            #  - a board quiet on every run in the window: name it;
+            #  - every other case: the original sentence. It can be false about
+            #    a run that found jobs while a board stayed quiet on some runs
+            #    only. The user accepts that cost and keeps this wording.
+            per_run = [set(empty_sources(r.source_breakdown)) for r in recent]
+            always_quiet = sorted(set.intersection(*per_run)) if per_run else []
+            if always_quiet:
+                return " · ".join(f"{source_label(k)} returned nothing" for k in always_quiet) \
+                       + f" in the last {window} scrapes"
+            return f"No results in the last {window} scrapes"
+
+        # Paused/inactive entities are excluded on purpose (their last-run state
+        # is history, not an open problem) but still show up muted in the row.
+        companies = []
+        for c in db.query(Company).filter(Company.active == True).all():
+            reason = _reason(ScrapeLog.company_id, c.id, c.warning_acknowledged_at)
+            if reason:
+                companies.append({"id": str(c.id), "name": c.name, "reason": reason})
+
+        searches = []
+        for s in db.query(Search).filter(Search.active == True).all():
+            reason = _reason(ScrapeLog.search_id, s.id, s.warning_acknowledged_at)
+            if reason:
+                searches.append({"id": str(s.id), "name": s.name, "reason": reason})
+
+        return {"companies": companies, "searches": searches,
+                "count": len(companies) + len(searches)}
+    finally:
+        db.close()
+
+
+@app.get("/api/stats/score-distribution", tags=["stats"], summary="Resume score distribution")
+def get_score_distribution(detail: bool = False, firm_id=Depends(reader_firm_id)):
+    """Distribution of best resume scores across all scored jobs; `detail=true` adds scored_count/avg/tailored_count/tailored_avg on top of the bare bucket list."""
+    from backend.models.db import Job
+
+    db = SessionLocal()
+    try:
+        # Only the scores column: loading whole Job rows to read one JSON field
+        # cost ~800ms on a few thousand jobs and was the single thing Stats waited on.
+        rows = scoped_jobs(db, firm_id, Job.cv_scores).filter(Job.cv_scores != None).all()
+        buckets = {"0-20": 0, "21-40": 0, "41-60": 0, "61-80": 0, "81-100": 0}
+        bests: list[float] = []
+        tailored: list[float] = []
+        for (scores,) in rows:
+            scores = scores or {}
+            if not isinstance(scores, dict):
+                continue
+            numeric = [v for v in scores.values() if isinstance(v, (int, float))]
+            if not numeric:
+                continue
+            best = max(numeric)
+            bests.append(best)
+            t = scores.get("Tailored")
+            if isinstance(t, (int, float)):
+                tailored.append(t)
+            if best <= 20:
+                buckets["0-20"] += 1
+            elif best <= 40:
+                buckets["21-40"] += 1
+            elif best <= 60:
+                buckets["41-60"] += 1
+            elif best <= 80:
+                buckets["61-80"] += 1
+            else:
+                buckets["81-100"] += 1
+        rows = [{"range": k, "count": v} for k, v in buckets.items()]
+        if not detail:
+            return rows
+        return {
+            "buckets": rows,
+            "scored_count": len(bests),
+            "avg": round(sum(bests) / len(bests), 1) if bests else None,
+            "tailored_count": len(tailored),
+            "tailored_avg": round(sum(tailored) / len(tailored), 1) if tailored else None,
+        }
+    finally:
+        db.close()
+
+
+@app.get("/api/stats/sankey", tags=["stats"], summary="Application flow data for Sankey diagram")
+def get_stats_sankey(firm_id=Depends(reader_firm_id)):
+    """Return status transition flows aggregated across the firm's applications."""
+    from backend.models.db import Application
+    db = SessionLocal()
+    try:
+        apps = scoped(db, Application, firm_id).filter(Application.status_transitions != None).all()
+        flows = {}  # (from, to) -> count
+        for app in apps:
+            transitions = app.status_transitions or []
+            for t in transitions:
+                fr = t.get("from") or "new"
+                to = t.get("to", "")
+                if to:
+                    key = (fr, to)
+                    flows[key] = flows.get(key, 0) + 1
+        return [{"source": k[0], "target": k[1], "value": v} for k, v in flows.items()]
+    finally:
+        db.close()
+
+
+# ── LLM cost stats ───────────────────────────────────────────────────────────
+
+def _llm_costs_stats(days: int = 7) -> dict:
+    """Aggregate llm_call_log rows within the last `days` days."""
+    from datetime import datetime, timedelta, timezone
+    from backend.models.db import LlmCallLog
+
+    db = SessionLocal()
+    try:
+        q = db.query(LlmCallLog)
+        if days and days > 0:  # days <= 0 → all time (no date filter)
+            since = datetime.now(timezone.utc) - timedelta(days=days)
+            q = q.filter(LlmCallLog.created_at >= since)
+        rows = q.all()
+
+        total_cost = sum(r.cost_usd or 0 for r in rows)
+        total_calls = len(rows)
+
+        # Group by (purpose, provider, model)
+        groups = {}
+        for r in rows:
+            key = (r.purpose, r.provider, r.model)
+            g = groups.setdefault(key, {
+                "purpose": r.purpose,
+                "provider": r.provider or "",
+                "model": r.model,
+                "calls": 0,
+                "cost_usd": 0.0,
+                "input_tokens": 0,
+                "output_tokens": 0,
+                "cache_read_tokens": 0,
+                "cache_write_tokens": 0,
+                "cache_involving": 0,
+                "cache_hits": 0,
+            })
+            g["calls"] += 1
+            g["cost_usd"] += r.cost_usd or 0
+            g["input_tokens"] += r.input_tokens or 0
+            g["output_tokens"] += r.output_tokens or 0
+            g["cache_read_tokens"] += r.cache_read_tokens or 0
+            g["cache_write_tokens"] += r.cache_write_tokens or 0
+            if (r.cache_read_tokens or 0) > 0 or (r.cache_write_tokens or 0) > 0:
+                g["cache_involving"] += 1
+            if (r.cache_read_tokens or 0) > 0:
+                g["cache_hits"] += 1
+
+        by_purpose = []
+        for g in groups.values():
+            g["cache_hit_ratio"] = (
+                g["cache_hits"] / g["cache_involving"] if g["cache_involving"] > 0 else 0.0
+            )
+            by_purpose.append(g)
+
+        return {
+            "window_days": days,
+            "total_calls": total_calls,
+            "total_cost_usd": round(total_cost, 6),
+            "by_purpose": sorted(by_purpose, key=lambda x: -x["cost_usd"]),
+        }
+    finally:
+        db.close()
+
+
+@app.get("/api/stats/llm-costs", tags=["stats"], summary="LLM cost + cache hit stats")
+async def llm_costs(days: int = 7):
+    """Returns spend and cache hit rate aggregated by (purpose, model) for the last N days."""
+    return _llm_costs_stats(days=days)
+
+
+@app.get("/api/stats", tags=["stats"], summary="Dashboard statistics")
+def get_stats(firm_id=Depends(reader_firm_id)):
+    """Aggregate counts: total jobs, new jobs, saved jobs, total applications, and application status breakdown.
+    Every count is the firm's: its applications, and the jobs firm_jobs links it to."""
+    from backend.models.db import Job, Application
+    from sqlalchemy import func
+    db = SessionLocal()
+    try:
+        total_jobs = scoped_jobs(db, firm_id).count()
+        new_jobs = scoped_jobs(db, firm_id).filter(Job.status == "new").count()
+        saved_jobs = scoped_jobs(db, firm_id).filter(Job.status == "saved").count()
+        total_apps = scoped(db, Application, firm_id).count()
+
+        status_counts = {}
+        for status, count in (scoped(db, Application, firm_id, Application.status, func.count())
+                              .group_by(Application.status).all()):
+            status_counts[status] = count
+
+        return {
+            "total_jobs": total_jobs,
+            "new_jobs": new_jobs,
+            "saved_jobs": saved_jobs,
+            "total_applications": total_apps,
+            "application_statuses": status_counts,
+        }
+    finally:
+        db.close()
