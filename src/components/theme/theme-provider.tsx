@@ -15,6 +15,11 @@ export function ThemeProvider({
       disableTransitionOnChange
       themes={["light", "dark"]}
       {...props}
+      scriptProps={{
+        ...props.scriptProps,
+        type: typeof window === "undefined" ? "text/javascript" : "text/plain",
+        suppressHydrationWarning: true,
+      }}
     >
       {children}
     </NextThemesProvider>
